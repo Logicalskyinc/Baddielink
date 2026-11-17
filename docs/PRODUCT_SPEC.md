@@ -238,3 +238,46 @@ Feature branch: `feature/baddielink-social-foundation`.
 - Database migrations: none applied.
 - Main branch: unchanged.
 - Render deployment: not triggered; existing service remains connected to `main` with auto-deploy disabled.
+
+
+## 13. Implementation progress update (2026-11-17, profile foundation)
+
+### Implemented on feature branch
+- Added a real profile editor backed by the existing `profiles` table.
+- Editable fields: display name, username, city, biography, interests and discoverability.
+- Username validation matches the database format (3–24 lowercase letters, digits and underscores).
+- Profile updates are scoped to the authenticated user's own profile ID.
+- The editor does not send moderation or verification fields.
+- Added a responsive French-language profile editor modal and member profile summary.
+- Login mode no longer requires the signup-only terms checkbox.
+- Corrected Unicode normalization for generated usernames.
+
+### Database security verification
+- Confirmed that RLS is enabled and owner policies remain in place.
+- Confirmed column-level UPDATE grants limit profile edits to approved editable columns. Authenticated users do not have UPDATE permission for `moderation_status`.
+- Confirmed authenticated users do not have UPDATE permission on `user_private_settings`; the adult declaration is written through `confirm_adult_status`.
+- Confirmed profile photo moderation status is not client-updatable; authenticated users can update only `display_order`.
+- No database permissions or schema were changed.
+
+### Static source checks
+- Supabase signup, password login, session restoration and logout paths are present.
+- Demo login and demo profile data are not used in the authenticated path.
+- Profile editor reads and updates only the current authenticated member's row.
+- Profile form, interest controls and discoverability control are present.
+- Main branch remains unchanged.
+
+### Still pending
+- Browser runtime and responsive testing.
+- Real signup, email confirmation, login, age declaration and logout tests.
+- Profile update tests against Supabase, including duplicate usernames and RLS denial cases.
+- Accessibility checks and browser console review.
+- No test account has been created and no production database changes have been made.
+- No Render deployment has been triggered.
+
+### Current delivery status
+- Product specification: committed on feature branch.
+- Authentication and profile foundation: implemented and committed on feature branch; static source checks passed.
+- Runtime/E2E validation: pending.
+- Stars & Reputation: specified, not implemented.
+- Main branch: unchanged.
+- Render: unchanged; deployment remains disabled.
