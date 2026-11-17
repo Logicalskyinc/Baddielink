@@ -148,20 +148,19 @@
     const { data, error } = await client.from("profile_photos")
       .select("object_path, moderation_status")
       .eq("user_id", currentUserId)
+      .eq("moderation_status", "approved")
       .order("created_at", { ascending: false })
       .limit(1);
     if (error) throw error;
     const photo = data?.[0];
-    if (!photo) return;
+    if (!photo) {
+      document.querySelectorAll(".avatar-user").forEach(el => { el.style.backgroundImage = ""; el.classList.remove("has-photo"); });
+      return;
+    }
     const { data: signed, error: signedError } = await client.storage
       .from("baddielink-profile-photos").createSignedUrl(photo.object_path, 3600);
     if (signedError) throw signedError;
     if (signed?.signedUrl) setProfilePhoto(signed.signedUrl);
-    const note = document.querySelector("#profile-photo-feedback");
-    if (note && photo.moderation_status === "pending") {
-      note.textContent = "Votre dernière photo est en attente de modération. Elle n’est pas encore visible publiquement.";
-      note.classList.remove("hidden");
-    }
   }
 
   async function loadReputation() {
@@ -171,6 +170,24 @@
     const labels = { beginner: "Débutant", novice: "Novice", intermediate: "Intermédiaire", advanced: "Avancé", expert: "Expert", legend: "Légende" };
     const target = document.querySelector("#profile-reputation");
     if (target) target.textContent = "☆☆☆☆☆ · " + (labels[data?.rank] || "Débutant") + " · " + (data?.score ?? 0) + " points";
+  }
+
+
+  function previewImageInput(input, preview, note, messageText) {
+    const file = input?.files?.[0];
+    if (!file || !preview || !note) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      note.textContent = "Choisissez une image JPEG, PNG ou WebP de 5 Mo maximum.";
+      note.style.color = "#ff9aa8";
+      note.classList.remove("hidden");
+      input.value = "";
+      return;
+    }
+    preview.src = URL.createObjectURL(file);
+    preview.classList.remove("hidden");
+    note.textContent = messageText;
+    note.style.color = "#a7e0bd";
+    note.classList.remove("hidden");
   }
 
   async function uploadProfilePhoto() {
@@ -195,7 +212,7 @@
         .upload(path, file, { contentType: file.type, upsert: false });
       if (uploadError) throw uploadError;
       const { error: rowError } = await client.from("profile_photos").insert({
-        user_id: currentUserId, object_path: path, display_order: 0, moderation_status: "pending"
+        user_id: currentUserId, object_path: path, moderation_status: "pending"
       });
       if (rowError) {
         await client.storage.from("baddielink-profile-photos").remove([path]);
@@ -231,7 +248,7 @@
     if (!list) return;
     list.replaceChildren(eventNode("p", "discover-note", "Chargement des événements…"));
     try {
-      let query = client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status")
+      let query = client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status,event_image_path")
         .eq("status", "published").gte("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(50);
       const city = document.querySelector("#event-city-filter")?.value;
       const category = document.querySelector("#event-category-filter")?.value;
@@ -251,6 +268,7 @@
       }
       events.forEach(event => {
         const card = eventNode("article", "event-card");
+        if (event.event_image_path) loadEventImage(event.event_image_path).then(url => { if (url) { const img = eventNode("img", "event-card-image"); img.src = url; img.alt = "Couverture : " + event.title; card.prepend(img); } });
         const meta = eventNode("div", "event-meta", (eventCategoryLabels[event.category] || "Événement") + " · " + event.city + (event.district ? " · " + event.district : ""));
         const title = eventNode("h3", "", event.title);
         const desc = eventNode("p", "event-description", event.description);
@@ -313,6 +331,30 @@
     }
   }
 
+
+  async function uploadEventImage(file) {
+    if (!file) return null;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      throw new Error("L’image doit être au format JPEG, PNG ou WebP et faire 5 Mo maximum.");
+    }
+    const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" })[file.type];
+    const path = currentUserId + "/" + crypto.randomUUID() + "." + extension;
+    const { error } = await client.storage.from("baddielink-event-images")
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (error) throw error;
+    return path;
+  }
+
+  async function loadEventImage(path) {
+    if (!path) return null;
+    const { data, error } = await client.storage.from("baddielink-event-images").createSignedUrl(path, 3600);
+    if (error) {
+      console.warn("Event image not accessible:", error);
+      return null;
+    }
+    return data?.signedUrl || null;
+  }
+
   async function submitEvent(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -327,6 +369,7 @@
     const endsAt = form.elements.ends_at.value ? new Date(form.elements.ends_at.value) : null;
     if (!Number.isFinite(startsAt.getTime()) || startsAt <= new Date()) return show("Choisissez une date future valide.", true);
     if (endsAt && (!Number.isFinite(endsAt.getTime()) || endsAt <= startsAt)) return show("L’heure de fin doit être postérieure au début.", true);
+    const imageFile = form.elements.event_image.files?.[0] || null;
     const payload = {
       created_by: currentUserId,
       title: form.elements.title.value.trim(),
@@ -340,6 +383,7 @@
       starts_at: startsAt.toISOString(),
       ends_at: endsAt ? endsAt.toISOString() : null,
       entry_fee_xof: Number(form.elements.entry_fee_xof.value),
+      event_image_path: null,
       status: "pending_review"
     };
     if (payload.title.length < 3 || payload.description.length < 10 || !Number.isSafeInteger(payload.entry_fee_xof) || payload.entry_fee_xof < 0) return show("Vérifiez le titre, la description et le tarif.", true);
@@ -350,8 +394,12 @@
         .select("status").eq("user_id", currentUserId).maybeSingle();
       if (organizerError) throw organizerError;
       if (["approved", "trusted"].includes(organizer?.status)) payload.status = "published";
+      if (imageFile) payload.event_image_path = await uploadEventImage(imageFile);
       const { error } = await client.from("events").insert(payload);
-      if (error) throw error;
+      if (error) {
+        if (payload.event_image_path) await client.storage.from("baddielink-event-images").remove([payload.event_image_path]);
+        throw error;
+      }
       form.reset();
       form.elements.city.value = "Abidjan";
       show(payload.status === "published" ? "Événement publié." : "Événement envoyé. Il sera visible après modération.");
@@ -387,6 +435,15 @@
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
+
+  document.querySelector("#event-image")?.addEventListener("change", event => {
+    previewImageInput(
+      event.target,
+      document.querySelector("#event-image-preview"),
+      document.querySelector("#event-create-feedback"),
+      "Aperçu prêt. La couverture sera associée à votre événement."
+    );
+  });
   document.querySelector("#profile-photo-file")?.addEventListener("change", event => {
     const file = event.target.files?.[0];
     const preview = document.querySelector("#profile-photo-preview");
