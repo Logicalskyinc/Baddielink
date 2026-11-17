@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101014">
-  <meta name="description" content="BaddieLink, faites de nouvelles rencontres en Côte d’Ivoire.">
-  <title>BaddieLink — Rencontres en Côte d’Ivoire</title>
+  <meta name="description" content="BaddieLink, découvrez des communautés, échangez et créez de vrais liens en Côte d’Ivoire.">
+  <title>BaddieLink — Connexions & communautés en Côte d’Ivoire</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
@@ -49,21 +49,21 @@
           <div class="field" id="name-field"><label for="full-name">Nom affiché</label><input id="full-name" name="name" autocomplete="name" placeholder="Ex. Aïcha K." maxlength="40"></div>
           <div class="field" id="dob-field"><label for="date-of-birth">Date de naissance</label><input id="date-of-birth" name="date_of_birth" type="date" autocomplete="bday"><small>Réservé aux personnes âgées de 18 ans ou plus. Cette déclaration n’est pas une vérification d’identité.</small></div>
           <div class="field"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="email" placeholder="vous@exemple.com" required></div>
-          <div class="field"><label for="phone">Téléphone (facultatif)</label><div class="phone-input"><span>🇨🇮 +225</span><input id="phone" name="phone" inputmode="numeric" maxlength="10" placeholder="07 00 00 00 00"></div><small>Numéro ivoirien à 10 chiffres. Ne partagez pas votre numéro publiquement.</small></div>
+
           <div class="field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" minlength="8" autocomplete="new-password" placeholder="8 caractères minimum" required></div>
           <label class="checkline"><input id="terms" type="checkbox" required><span>J’accepte les conditions d’utilisation et la politique de confidentialité.</span></label>
           <button class="button button-primary button-full button-large" type="submit" id="auth-submit">Créer mon compte</button>
         </form>
         <p class="switch-auth" id="switch-auth">Vous avez déjà un compte ? <button class="text-button" id="switch-auth-button">Se connecter</button></p>
         <button class="button button-outline button-full hidden" type="button" id="auth-signout">Se déconnecter</button>
-        <p class="demo-note">Prototype : aucun compte n’est créé sur un serveur à ce stade.</p>
+        
       </div>
     </section>
 
     <section class="app-shell hidden" id="app-shell">
       <aside class="sidebar">
         <a class="brand sidebar-brand" href="#"><span class="brand-mark">B</span><span>Baddie<span class="brand-accent">Link</span></span></a>
-        <div class="sidebar-user"><div class="avatar avatar-user">H</div><div><strong id="sidebar-name">Votre profil</strong><span>Mode démonstration</span></div></div>
+        <div class="sidebar-user"><div class="avatar avatar-user">H</div><div><strong id="sidebar-name">Votre profil</strong><span>Compte connecté</span></div></div>
         <nav class="side-nav" aria-label="Navigation principale">
           <button class="nav-item active" data-view="discover"><span>⌕</span> Découvrir</button>
           <button class="nav-item" data-view="likes"><span>♡</span> Mes likes <b class="nav-count" id="likes-count">0</b></button>
@@ -81,15 +81,40 @@
           <div class="profile-grid" id="profile-grid"></div>
         </div>
         <div class="view" id="view-likes"><div class="empty-state"><span>♡</span><h3>Vos coups de cœur</h3><p>Les profils que vous aimez apparaîtront ici.</p><button class="button button-outline" data-goto="discover">Découvrir des profils</button></div><div class="profile-grid" id="likes-grid"></div></div>
-        <div class="view" id="view-messages"><div class="messages-layout"><div class="conversation-list"><h3>Conversations</h3><button class="conversation active"><span class="avatar avatar-a">A</span><span><strong>Aminata</strong><small>Bonjour, comment allez-vous ?</small></span><i></i></button><button class="conversation"><span class="avatar avatar-b">K</span><span><strong>Kevin</strong><small>Ravi de faire votre connaissance !</small></span></button><p class="demo-note">Conversations fictives de démonstration.</p></div><div class="chat-window"><div class="chat-head"><span class="avatar avatar-a">A</span><div><strong>Aminata</strong><small>Profil de démonstration</small></div></div><div class="chat-body" id="chat-body"><div class="chat-date">Aujourd’hui</div><div class="bubble received">Bonjour ! Comment allez-vous ?</div><div class="bubble sent">Très bien, merci. Et vous ?</div><div class="bubble received">Ça va très bien 😊</div></div><form class="chat-compose" id="chat-form"><input id="chat-message" placeholder="Écrire un message…" maxlength="500" autocomplete="off"><button class="button button-primary" type="submit" aria-label="Envoyer">➤</button></form></div></div></div>
+        <div class="view" id="view-messages"><div class="messages-layout"><div class="conversation-list"><h3>Conversations</h3><button class="conversation active"><span class="avatar avatar-a">A</span><span><strong>Aminata</strong><small>Bonjour, comment allez-vous ?</small></span><i></i></button><button class="conversation"><span class="avatar avatar-b">K</span><span><strong>Kevin</strong><small>Ravi de faire votre connaissance !</small></span></button><p class="demo-note">Conversations fictives de démonstration.</p></div><div class="chat-window"><div class="chat-head"><span class="avatar avatar-a">A</span><div><strong>Aminata</strong><small>Profil membre</small></div></div><div class="chat-body" id="chat-body"><div class="chat-date">Aujourd’hui</div><div class="bubble received">Bonjour ! Comment allez-vous ?</div><div class="bubble sent">Très bien, merci. Et vous ?</div><div class="bubble received">Ça va très bien 😊</div></div><form class="chat-compose" id="chat-form"><input id="chat-message" placeholder="Écrire un message…" maxlength="500" autocomplete="off"><button class="button button-primary" type="submit" aria-label="Envoyer">➤</button></form></div></div></div>
         <div class="view" id="view-wallet"><div class="wallet-card"><p>Votre solde de démonstration</p><h2>0 <small>FCFA</small></h2><span>Les paiements ne sont pas encore activés.</span></div><div class="section-heading"><div><h3>BaddieCoins</h3><p class="muted">Les crédits pourront servir à envoyer des cadeaux virtuels.</p></div></div><div class="wallet-info"><span>◇</span><div><strong>Rechargement indisponible</strong><p>Aucun achat ni transfert d’argent réel n’est possible dans cette version.</p></div></div></div>
-        <div class="view" id="view-profile"><div class="profile-settings-card"><div class="avatar avatar-user profile-avatar">H</div><div><h2 id="profile-name">Votre profil</h2><p class="muted">Côte d’Ivoire · Profil de démonstration</p></div></div><div class="settings-block"><h3>À propos de vous</h3><p>Complétez votre profil pour aider les autres à mieux vous connaître.</p><button class="button button-outline" id="edit-profile">Modifier le profil</button></div></div>
+        <div class="view" id="view-profile"><div class="profile-settings-card"><div class="avatar avatar-user profile-avatar">B</div><div><h2 id="profile-name">Votre profil</h2><p class="muted" id="profile-subtitle">Côte d’Ivoire</p></div></div><div class="settings-block"><h3>À propos de vous</h3><p id="profile-bio">Complétez votre présentation.</p><p class="profile-detail" id="profile-interests">Aucun centre d’intérêt ajouté.</p><p class="profile-detail" id="profile-visibility">Non visible dans la découverte</p><button class="button button-outline" id="edit-profile">Modifier le profil</button></div></div>
         <div class="view" id="view-settings"><div class="settings-block"><h3>Préférences</h3><div class="setting-row"><div><strong>Langue</strong><p>Langue de l’interface</p></div><span>Français (Côte d’Ivoire)</span></div><div class="setting-row"><div><strong>Pays</strong><p>Région de votre compte</p></div><span>🇨🇮 Côte d’Ivoire</span></div><div class="setting-row"><div><strong>Devise</strong><p>Affichage monétaire</p></div><span>FCFA (XOF)</span></div><div class="setting-row"><div><strong>Fuseau horaire</strong><p>Heure locale</p></div><span>Africa/Abidjan</span></div></div><div class="settings-block"><h3>Sécurité et confidentialité</h3><p>Les outils de vérification, de signalement et de gestion des données seront connectés au backend avant la mise en production.</p></div></div>
-        <footer class="workspace-footer">BaddieLink · Conçu pour la Côte d’Ivoire <span>Prototype frontend</span></footer>
+        <footer class="workspace-footer">BaddieLink · Conçu pour la Côte d’Ivoire <span>Espace membre</span></footer>
       </section>
     </section>
   </main>
 
+  <div class="modal-backdrop hidden" id="profile-editor-modal" role="dialog" aria-modal="true" aria-labelledby="profile-editor-title">
+    <div class="modal profile-editor-modal">
+      <button class="modal-close" type="button" id="close-profile-editor" aria-label="Fermer">×</button>
+      <p class="eyebrow">VOTRE IDENTITÉ</p>
+      <h2 id="profile-editor-title">Modifier mon profil</h2>
+      <p class="muted">Vos informations publiques restent sous votre contrôle.</p>
+      <form id="profile-editor-form">
+        <div class="field"><label for="profile-display-name">Nom affiché</label><input id="profile-display-name" name="display_name" maxlength="60" required></div>
+        <div class="field"><label for="profile-username">Nom d’utilisateur</label><input id="profile-username" name="username" minlength="3" maxlength="24" pattern="[a-z0-9_]+" required><small>3 à 24 caractères, lettres minuscules, chiffres et underscore.</small></div>
+        <div class="field"><label for="profile-city">Ville</label><input id="profile-city" name="city" maxlength="80" placeholder="Ex. Grand-Bassam" required></div>
+        <div class="field"><label for="profile-bio-input">Présentation</label><textarea id="profile-bio-input" name="bio" maxlength="500" rows="3" placeholder="Quelques mots sur vous…"></textarea></div>
+        <fieldset class="interest-fieldset"><legend>Ce qui vous intéresse</legend>
+          <label><input type="checkbox" name="interested_in" value="friendship"> Amitié</label>
+          <label><input type="checkbox" name="interested_in" value="dating"> Rencontres</label>
+          <label><input type="checkbox" name="interested_in" value="networking"> Réseautage</label>
+          <label><input type="checkbox" name="interested_in" value="discussion"> Discussions</label>
+          <label><input type="checkbox" name="interested_in" value="events"> Événements</label>
+        </fieldset>
+        <label class="checkline"><input type="checkbox" name="is_discoverable"><span>Autoriser mon profil à apparaître dans Découvrir</span></label>
+        <p class="field-note">Votre profil ne sera visible qu’après approbation de la modération et validation de votre déclaration de majorité.</p>
+        <p id="profile-editor-feedback" class="hidden" role="status" aria-live="polite"></p>
+        <div class="modal-actions"><button class="button button-primary button-full" type="submit" id="save-profile">Enregistrer</button><button class="button button-outline button-full" type="button" id="cancel-profile-editor">Annuler</button></div>
+      </form>
+    </div>
+  </div>
   <div class="modal-backdrop hidden" id="age-modal" role="dialog" aria-modal="true" aria-labelledby="age-title"><div class="modal"><span class="modal-symbol">18+</span><p class="eyebrow">ACCÈS À BADDIELINK</p><h2 id="age-title">Vous devez avoir 18 ans ou plus.</h2><p>En continuant, vous déclarez être majeur(e). Cette déclaration ne constitue pas une vérification officielle de l’âge.</p><div class="modal-actions"><button class="button button-primary button-full" id="age-confirm">J’ai 18 ans ou plus</button><button class="button button-outline button-full" id="age-decline">Je ne suis pas majeur(e)</button></div></div></div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
