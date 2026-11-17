@@ -95,3 +95,9 @@
 .event-form label{display:block;margin-bottom:6px;font-size:10px;color:#cfc5d0}
 .my-event-item{padding:10px 0;border-bottom:1px solid var(--line);font-size:11px;line-height:1.5;color:#d8cbd6}
 @media(max-width:650px){.events-list{grid-template-columns:1fr}.event-form-grid{grid-template-columns:1fr}.photo-upload-block{align-items:flex-start}.photo-upload-block input{max-width:100%}}
+
+
+.event-card-image{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;margin-bottom:12px;background:#111}
+.event-image-preview{display:block;width:min(100%,360px);max-height:210px;aspect-ratio:16/9;object-fit:cover;border-radius:10px;margin-top:10px;background:#111}
+.event-form input[type=file]{padding:9px}
+.event-form small{display:block;color:#aaa1ad;font-size:10px;line-height:1.5;margin-top:6px}
