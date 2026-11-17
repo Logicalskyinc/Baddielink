@@ -208,3 +208,33 @@ Track each item separately as **planned**, **implemented**, **tested**, **commit
 - Auth registration/login integration code exists, but signup/login/session behavior has not been end-to-end verified in this audit.
 - Render static site exists and automatic deployment is disabled.
 - No deployment, billing change or paid infrastructure change is authorized by this specification.
+
+
+## 12. Implementation progress update (2026-11-17)
+
+Feature branch: `feature/baddielink-social-foundation`.
+
+### Implemented on the feature branch (not deployed)
+- Removed the client-side demo sign-up/login handler that previously allowed a local fake session.
+- Kept Supabase Auth sign-up, password sign-in, session restoration and sign-out as the only authentication path.
+- Authenticated users no longer receive prototype discovery profiles, fake likes or sample conversations.
+- Removed the unused phone-number field from signup because no verified phone persistence/verification workflow exists yet.
+- Removed signup copy that incorrectly stated that no server account was created.
+- Replaced the demo wallet balance with an explicit BaddieCoins preparation state; no fake balance is shown.
+- Clarified that the adult declaration is not official age verification.
+- Added visible styling for authentication errors.
+
+### Not yet verified
+- Browser execution and JavaScript syntax check in a real browser.
+- End-to-end signup, email confirmation, login, session restore, age declaration and logout using a test account.
+- Profile creation trigger behavior under the actual Auth flow.
+- Responsive and accessibility regression checks.
+- No new database schema, RLS, Storage or Realtime changes have been made in this implementation phase.
+
+### Current status
+- Product specification: committed on feature branch.
+- Authentication/demo-flow hardening: implemented and committed on feature branch; static source checks passed.
+- Browser/runtime tests: pending.
+- Database migrations: none applied.
+- Main branch: unchanged.
+- Render deployment: not triggered; existing service remains connected to `main` with auto-deploy disabled.
