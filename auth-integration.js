@@ -356,14 +356,11 @@
     const editButton = document.querySelector("#edit-profile");
     if (editButton) editButton.onclick = () => openProfileEditor(profile);
 
-    // Never expose prototype profiles, fake likes, or sample conversations to real members.
-    document.querySelector("#profile-grid").innerHTML = "";
-    document.querySelector("#likes-grid").innerHTML = "";
-    document.querySelector("#view-discover .filter-row")?.classList.add("hidden");
+    // Discover only real profiles returned by the database and protected by RLS.
+    document.querySelector("#profile-grid")?.replaceChildren();
+    document.querySelector("#likes-grid")?.replaceChildren();
     const discoverStatus = document.querySelector("#discover-member-status");
-    if (discoverStatus) {
-      discoverStatus.textContent = "Votre compte est connecté. La découverte des membres sera activée après validation des règles de visibilité et de sécurité.";
-    }
+    if (discoverStatus) discoverStatus.textContent = "Chargement des membres approuvés…";
     document.querySelector("#view-messages").innerHTML =
       '<div class="empty-state"><span>✉</span><h3>Messagerie en préparation</h3><p>La messagerie réelle sera activée après les tests d’accès et de confidentialité.</p></div>';
     document.querySelector("#view-likes").innerHTML =
@@ -375,7 +372,7 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
-    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadPeople(true), loadLikes(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
     if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
     else location.hash = "espace";
     const sharedEventId = new URLSearchParams(location.search).get("event");
@@ -482,6 +479,260 @@
       button.textContent = "Envoyer la photo";
     }
   }
+
+
+  const peoplePageSize = 24;
+  let peopleRows = [];
+  let peopleOffset = 0;
+  let peopleHasMore = true;
+  let peopleLoading = false;
+  let peopleLikeIds = new Set();
+  let peopleMatchIds = new Set();
+  let peoplePhotos = new Map();
+  let peopleReputation = new Map();
+
+  function peopleNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined && value !== null) el.textContent = String(value);
+    return el;
+  }
+
+  function interestLabel(value) {
+    return ({ friendship: "Amitié", dating: "Rencontres", networking: "Réseautage", discussion: "Discussions", events: "Événements" })[value] || value;
+  }
+
+  function renderPeople() {
+    const grid = document.querySelector("#profile-grid");
+    const status = document.querySelector("#discover-member-status");
+    const search = (document.querySelector("#people-search")?.value || "").trim().toLocaleLowerCase("fr");
+    if (!grid) return;
+    grid.replaceChildren();
+    const visible = peopleRows.filter(person => {
+      if (!search) return true;
+      return [person.display_name, person.username, person.city, person.bio]
+        .some(value => String(value || "").toLocaleLowerCase("fr").includes(search));
+    });
+    visible.forEach(person => {
+      const card = peopleNode("article", "people-card");
+      const top = peopleNode("div", "people-card-top");
+      const photoUrl = peoplePhotos.get(person.id);
+      let avatar;
+      if (photoUrl) {
+        avatar = peopleNode("img", "people-avatar");
+        avatar.src = photoUrl;
+        avatar.alt = "Photo de " + person.display_name;
+        avatar.loading = "lazy";
+      } else {
+        avatar = peopleNode("div", "people-avatar", (person.display_name || "B").trim().charAt(0).toUpperCase());
+        avatar.setAttribute("aria-hidden", "true");
+      }
+      const identity = peopleNode("div", "people-identity");
+      identity.append(peopleNode("h3", "", person.display_name), peopleNode("p", "", "@" + person.username + " · " + person.city));
+      top.append(avatar, identity);
+      const bio = peopleNode("p", "people-bio", person.bio || "Ce membre n’a pas encore ajouté de présentation.");
+      const tags = peopleNode("div", "people-tags");
+      (person.interested_in || []).slice(0, 4).forEach(item => tags.append(peopleNode("span", "people-tag", interestLabel(item))));
+      if (!tags.children.length) tags.append(peopleNode("span", "people-tag", "Nouveaux échanges"));
+      const reputation = peopleReputation.get(person.id);
+      const reputationLine = peopleNode("p", "people-reputation", reputation
+        ? (reputation.rank || "beginner") + " · " + reputation.score + " points"
+        : "Nouveau membre");
+      const actions = peopleNode("div", "people-actions");
+      const liked = peopleLikeIds.has(person.id);
+      const matched = peopleMatchIds.has(person.id);
+      const like = peopleNode("button", "button " + (liked ? "button-outline" : "button-primary"), matched ? "Connexion établie" : liked ? "Like envoyé" : "Envoyer un like");
+      like.type = "button";
+      like.disabled = liked || matched;
+      like.addEventListener("click", async () => {
+        like.disabled = true;
+        try {
+          const { error } = await client.from("likes").insert({ sender_id: currentUserId, receiver_id: person.id });
+          if (error && error.code !== "23505") throw error;
+          peopleLikeIds.add(person.id);
+          like.textContent = "Like envoyé";
+          like.className = "button button-outline";
+          window.BaddieLinkUI?.toast("Votre like a été envoyé.");
+          await loadLikes();
+        } catch (error) {
+          console.error("People like failed:", error);
+          window.BaddieLinkUI?.toast(error.message || "Impossible d’envoyer ce like.", true);
+          like.disabled = false;
+        }
+      });
+      const report = peopleNode("button", "button button-outline", "Signaler");
+      report.type = "button";
+      report.addEventListener("click", () => {
+        if (card.querySelector(".people-report")) return;
+        const form = peopleNode("form", "people-report");
+        const reason = peopleNode("select", "");
+        reason.setAttribute("aria-label", "Motif du signalement");
+        [["fake_profile","Faux profil"],["harassment","Harcèlement"],["underage_safety","Sécurité des mineurs"],["scam","Arnaque"],["sexual_solicitation","Sollicitation sexuelle"],["spam","Spam"],["other","Autre"]].forEach(([value,label]) => {
+          const option = peopleNode("option", "", label); option.value = value; reason.append(option);
+        });
+        const details = peopleNode("textarea", "");
+        details.maxLength = 2000; details.rows = 2; details.placeholder = "Décrivez le problème (facultatif).";
+        const send = peopleNode("button", "button button-outline", "Envoyer le signalement"); send.type = "submit";
+        const cancel = peopleNode("button", "button button-outline", "Annuler"); cancel.type = "button";
+        cancel.addEventListener("click", () => form.remove());
+        const feedback = peopleNode("p", "form-feedback");
+        form.append(reason, details, send, cancel, feedback);
+        form.addEventListener("submit", async event => {
+          event.preventDefault(); send.disabled = true;
+          try {
+            const { error } = await client.from("reports").insert({
+              reporter_id: currentUserId, reported_user_id: person.id,
+              reason: reason.value, details: details.value.trim()
+            });
+            if (error) throw error;
+            feedback.textContent = "Signalement transmis à l’équipe de modération.";
+            report.disabled = true; report.textContent = "Signalé";
+            form.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
+          } catch (error) {
+            feedback.textContent = error.code === "23505" ? "Ce signalement existe déjà." : (error.message || "Le signalement a échoué.");
+            send.disabled = false;
+          }
+        });
+        card.append(form);
+      });
+      const block = peopleNode("button", "button button-outline", "Bloquer");
+      block.type = "button";
+      block.addEventListener("click", async () => {
+        if (!window.confirm("Bloquer @" + person.username + " ? Ce membre ne pourra plus interagir avec vous.")) return;
+        block.disabled = true;
+        try {
+          const { error } = await client.from("blocks").insert({ blocker_id: currentUserId, blocked_id: person.id });
+          if (error && error.code !== "23505") throw error;
+          peopleRows = peopleRows.filter(row => row.id !== person.id);
+          renderPeople();
+          window.BaddieLinkUI?.toast("Membre bloqué.");
+        } catch (error) {
+          window.BaddieLinkUI?.toast(error.message || "Impossible de bloquer ce membre.", true);
+          block.disabled = false;
+        }
+      });
+      actions.append(like, report, block);
+      card.append(top, bio, tags, reputationLine, actions);
+      grid.append(card);
+    });
+    if (status) {
+      if (!peopleRows.length) status.textContent = "Aucun profil approuvé et visible pour le moment. Revenez bientôt.";
+      else if (!visible.length) status.textContent = "Aucun profil ne correspond à votre recherche dans les membres chargés.";
+      else status.textContent = visible.length + " profil(s) affiché(s) · Les profils sont soumis aux règles de visibilité et de sécurité.";
+    }
+    const more = document.querySelector("#load-more-people");
+    if (more) more.classList.toggle("hidden", !peopleHasMore || Boolean(search));
+  }
+
+  async function loadPeople(reset = false) {
+    if (peopleLoading) return;
+    if (reset) {
+      peopleOffset = 0; peopleHasMore = true; peopleRows = [];
+      document.querySelector("#profile-grid")?.replaceChildren();
+    }
+    if (!peopleHasMore) return;
+    peopleLoading = true;
+    const status = document.querySelector("#discover-member-status");
+    if (status) status.textContent = "Chargement des membres approuvés…";
+    const more = document.querySelector("#load-more-people");
+    if (more) more.disabled = true;
+    try {
+      let query = client.from("profiles")
+        .select("id,username,display_name,bio,city,interested_in,created_at")
+        .eq("is_discoverable", true).eq("moderation_status", "approved")
+        .neq("id", currentUserId).order("created_at", { ascending: false })
+        .range(peopleOffset, peopleOffset + peoplePageSize - 1);
+      const city = document.querySelector("#city-filter")?.value;
+      if (city) query = query.eq("city", city);
+      const { data, error } = await query;
+      if (error) throw error;
+      const page = data || [];
+      peopleRows = reset ? page : peopleRows.concat(page);
+      peopleOffset += page.length;
+      peopleHasMore = page.length === peoplePageSize;
+      const ids = peopleRows.map(person => person.id);
+      if (ids.length) {
+        const [{ data: likes, error: likesError }, { data: matches, error: matchesError },
+          { data: photos, error: photosError }, { data: reputations, error: reputationError }] = await Promise.all([
+          client.from("likes").select("receiver_id").eq("sender_id", currentUserId).limit(500),
+          client.from("matches").select("user_one_id,user_two_id").or("user_one_id.eq." + currentUserId + ",user_two_id.eq." + currentUserId).is("ended_at", null).limit(500),
+          client.from("profile_photos").select("user_id,object_path").in("user_id", ids).eq("moderation_status", "approved"),
+          client.from("reputation_profiles").select("user_id,score,rank").in("user_id", ids)
+        ]);
+        if (likesError) throw likesError;
+        if (matchesError) throw matchesError;
+        if (photosError) throw photosError;
+        if (reputationError) throw reputationError;
+        peopleLikeIds = new Set((likes || []).map(row => row.receiver_id));
+        peopleMatchIds = new Set((matches || []).map(row => row.user_one_id === currentUserId ? row.user_two_id : row.user_one_id));
+        peopleReputation = new Map((reputations || []).map(row => [row.user_id, row]));
+        peoplePhotos = new Map();
+        const photoRows = photos || [];
+        if (photoRows.length) {
+          const { data: signed, error: signedError } = await client.storage.from("baddielink-profile-photos")
+            .createSignedUrls(photoRows.map(row => row.object_path), 1800);
+          if (signedError) throw signedError;
+          (signed || []).forEach(item => {
+            const photo = photoRows.find(row => row.object_path === item.path);
+            if (photo && item.signedUrl) peoplePhotos.set(photo.user_id, item.signedUrl);
+          });
+        }
+      }
+      renderPeople();
+    } catch (error) {
+      console.error("BaddieLink People discovery failed:", error);
+      if (status) status.textContent = "Impossible de charger les membres. Vérifiez votre connexion puis actualisez.";
+      window.BaddieLinkUI?.toast(error.message || "Le chargement des membres a échoué.", true);
+    } finally {
+      peopleLoading = false;
+      if (more) more.disabled = false;
+    }
+  }
+
+  async function loadLikes() {
+    const target = document.querySelector("#likes-grid");
+    if (!target) return;
+    target.replaceChildren(peopleNode("p", "discover-note", "Chargement de vos likes…"));
+    try {
+      const [{ data: sent, error: sentError }, { data: received, error: receivedError }] = await Promise.all([
+        client.from("likes").select("receiver_id,created_at").eq("sender_id", currentUserId).order("created_at", { ascending: false }).limit(100),
+        client.from("likes").select("sender_id,created_at").eq("receiver_id", currentUserId).order("created_at", { ascending: false }).limit(100)
+      ]);
+      if (sentError) throw sentError;
+      if (receivedError) throw receivedError;
+      const ids = [...new Set([...(sent || []).map(row => row.receiver_id), ...(received || []).map(row => row.sender_id)])];
+      const { data: profiles, error: profilesError } = ids.length
+        ? await client.from("profiles").select("id,username,display_name,city,bio").in("id", ids)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+      const profileMap = new Map((profiles || []).map(row => [row.id, row]));
+      target.replaceChildren();
+      const addSection = (title, rows, key) => {
+        target.append(peopleNode("h3", "people-list-heading", title));
+        const found = rows.map(row => profileMap.get(row[key])).filter(Boolean);
+        if (!found.length) target.append(peopleNode("p", "discover-note", "Rien à afficher pour le moment."));
+        found.forEach(person => {
+          const card = peopleNode("article", "people-card");
+          const top = peopleNode("div", "people-card-top");
+          top.append(peopleNode("div", "people-avatar", (person.display_name || "B").charAt(0).toUpperCase()));
+          const identity = peopleNode("div", "people-identity");
+          identity.append(peopleNode("h3", "", person.display_name), peopleNode("p", "", "@" + person.username + " · " + person.city));
+          top.append(identity); card.append(top, peopleNode("p", "people-bio", person.bio || "Aucune présentation."));
+          target.append(card);
+        });
+      };
+      addSection("Les likes que vous avez envoyés", sent || [], "receiver_id");
+      addSection("Les likes reçus", received || [], "sender_id");
+    } catch (error) {
+      console.error("BaddieLink likes load failed:", error);
+      target.replaceChildren(peopleNode("p", "discover-note", "Impossible de charger vos likes. Réessayez."));
+    }
+  }
+
+  document.querySelector("#refresh-people")?.addEventListener("click", () => loadPeople(true));
+  document.querySelector("#load-more-people")?.addEventListener("click", () => loadPeople(false));
+  document.querySelector("#city-filter")?.addEventListener("change", () => loadPeople(true));
+  document.querySelector("#people-search")?.addEventListener("input", renderPeople);
 
   const eventCategoryLabels = { concert: "Concert", party: "Soirée", exhibition: "Exposition", networking: "Réseautage", community: "Communauté", culture: "Culture", sports: "Sport", other: "Autre" };
   function eventNode(tag, className, value) {
