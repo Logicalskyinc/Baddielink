@@ -109,3 +109,5 @@
 .event-report-form select,.event-report-form textarea{width:100%;background:#17161d;border:1px solid #37343e;border-radius:8px;color:#eee;padding:9px;font:inherit;font-size:11px}
 .organizer-application-card{margin-top:16px}
 .event-card:target{outline:2px solid #ff9ab5;outline-offset:3px}
+
+.my-events-heading{font-size:12px;margin:14px 0 7px;color:#f1c4d2}.my-event-submission{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.my-event-submission .my-event-item{flex:1}
