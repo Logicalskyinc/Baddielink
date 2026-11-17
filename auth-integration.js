@@ -376,7 +376,8 @@
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
     await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
-    location.hash = "espace";
+    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
+    else location.hash = "espace";
     const sharedEventId = new URLSearchParams(location.search).get("event");
     if (sharedEventId) {
       document.querySelector('[data-discover-section="exhibitions"]')?.click();
