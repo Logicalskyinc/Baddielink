@@ -132,6 +132,11 @@
     }
     await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
     location.hash = "espace";
+    const sharedEventId = new URLSearchParams(location.search).get("event");
+    if (sharedEventId) {
+      document.querySelector('[data-discover-section="exhibitions"]')?.click();
+      requestAnimationFrame(() => document.querySelector("#event-" + CSS.escape(sharedEventId))?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    }
   }
 
   function setProfilePhoto(url) {
@@ -268,6 +273,7 @@
       }
       events.forEach(event => {
         const card = eventNode("article", "event-card");
+        card.id = "event-" + event.id;
         if (event.event_image_path) loadEventImage(event.event_image_path).then(url => { if (url) { const img = eventNode("img", "event-card-image"); img.src = url; img.alt = "Couverture : " + event.title; card.prepend(img); } });
         const meta = eventNode("div", "event-meta", (eventCategoryLabels[event.category] || "Événement") + " · " + event.city + (event.district ? " · " + event.district : ""));
         const title = eventNode("h3", "", event.title);
@@ -302,7 +308,7 @@
         const share = eventNode("button", "button button-outline event-secondary-action", "Partager");
         share.type = "button";
         share.addEventListener("click", async () => {
-          const shareData = { title: event.title, text: event.title + " · " + event.venue_name + " · " + formatEventDate(event.starts_at), url: location.origin + location.pathname + "#event-" + event.id };
+          const shareData = { title: event.title, text: event.title + " · " + event.venue_name + " · " + formatEventDate(event.starts_at), url: location.origin + location.pathname + "?event=" + encodeURIComponent(event.id) + "#espace" };
           try {
             if (navigator.share) await navigator.share(shareData);
             else if (navigator.clipboard?.writeText) {
