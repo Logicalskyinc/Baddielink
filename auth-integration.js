@@ -148,8 +148,7 @@
     document.querySelector("#admin-mode-toggle").textContent = "⚙";
     document.querySelector("#admin-mode-toggle").title = "Ouvrir la console d’administration";
     window.BaddieLinkUI?.showView("discover");
-    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
-    else location.hash = "espace";
+    location.hash = "espace";
   }
 
   async function loadAdminTab(tab) {
