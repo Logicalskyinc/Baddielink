@@ -60,7 +60,14 @@
   function showView(view) {
     if (!viewMeta[view]) return;
     $$(".view").forEach(el => el.classList.toggle("active", el.id === "view-" + view));
-    $$(".nav-item[data-view]").forEach(el => el.classList.toggle("active", el.dataset.view === view));
+    $(".nav-item[data-view], .mobile-nav-item[data-view]").forEach(el => {
+      const active = el.dataset.view === view;
+      el.classList.toggle("active", active);
+      if (el.classList.contains("mobile-nav-item")) {
+        if (active) el.setAttribute("aria-current", "page");
+        else el.removeAttribute("aria-current");
+      }
+    });
     const [kicker, title, description] = viewMeta[view];
     $("#view-kicker").textContent = kicker;
     $("#view-title").textContent = title;
@@ -105,7 +112,21 @@
   $$("[data-goto]").forEach(button => {
     button.addEventListener("click", () => showView(button.dataset.goto));
   });
-  $("#mobile-settings")?.addEventListener("click", () => showView("settings"));
+  $("[data-discover-section]").forEach(button => {
+    button.addEventListener("click", () => {
+      const section = button.dataset.discoverSection;
+      $(".discover-tab").forEach(tab => {
+        const active = tab === button;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      $(".discover-panel").forEach(panel => {
+        const active = panel.id === "discover-panel-" + section;
+        panel.classList.toggle("active", active);
+        panel.hidden = !active;
+      });
+    });
+  });
 
   $("#logout")?.addEventListener("click", async () => {
     const client = window.baddielinkSupabase;
