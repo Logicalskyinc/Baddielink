@@ -101,7 +101,11 @@
         await loadAdminTab(activeAdminTab);
       } catch (error) {
         console.error("BaddieLink admin action failed:", error);
-        window.BaddieLinkUI?.toast(error.message || "Action administrative impossible.", true);
+        const rawMessage = String(error?.message || "");
+        const userMessage = rawMessage.includes("Cannot moderate your own admin account")
+          ? "Votre compte propriétaire ne peut pas être modéré depuis cette console."
+          : (rawMessage || "Action administrative impossible.");
+        window.BaddieLinkUI?.toast(userMessage, true);
       } finally {
         button.disabled = false;
       }
@@ -247,7 +251,7 @@
         });
       } else if (tab === "members") {
         const { data, error } = await client.from("profiles")
-          .select("id,username,display_name,city,moderation_status,created_at")
+          .select("id,username,display_name,city,moderation_status,is_discoverable,created_at")
           .order("created_at", { ascending: false }).limit(100);
         if (error) throw error;
         const memberRows = data || [];
@@ -273,12 +277,19 @@
           filters.append(filter);
         });
         queue.append(filters);
+        const visibilityNote = adminNode("div", "admin-empty");
+        visibilityNote.append(
+          adminNode("h3", "", "Modération et visibilité"),
+          adminNode("p", "", "L’approbation confirme le statut du compte. L’apparition dans People Discovery dépend aussi du choix de visibilité du membre. L’approbation ne modifie jamais ce réglage.")
+        );
+        queue.append(visibilityNote);
         const selectedFilter = window.__baddielinkMemberFilter || "all";
         const visibleMembers = selectedFilter === "all"
           ? memberRows
           : memberRows.filter(item => item.moderation_status === selectedFilter);
         visibleMembers.forEach(item => {
-          const {card,head}=adminCard(item.display_name+" (@"+item.username+")",item.city+" · "+item.id.slice(0,8), "Statut : "+item.moderation_status+" · Inscription : "+new Date(item.created_at).toLocaleDateString("fr-FR"));
+          const visibility = item.is_discoverable ? "Visible dans People Discovery" : "Masqué dans People Discovery";
+          const {card,head}=adminCard(item.display_name+" (@"+item.username+")",item.city+" · "+item.id.slice(0,8), "Modération : "+item.moderation_status+" · "+visibility+" · Inscription : "+new Date(item.created_at).toLocaleDateString("fr-FR"));
           head.append(adminNode("span","admin-status-pill",item.moderation_status));
           if (item.id === currentUserId) {
             card.append(adminNode("p", "admin-item-detail", "Votre compte administrateur ne peut pas être approuvé, restreint ou retiré par vous-même."));
