@@ -106,7 +106,7 @@
     showAuth(window.__baddielinkMode === "signup" ? "login" : "signup");
   });
 
-  $$(".nav-item[data-view]").forEach(button => {
+  $(".nav-item[data-view], .mobile-nav-item[data-view], .workspace-icon-button[data-view]").forEach(button => {
     button.addEventListener("click", () => showView(button.dataset.view));
   });
   $$("[data-goto]").forEach(button => {
