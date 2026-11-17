@@ -387,6 +387,23 @@
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
+  document.querySelector("#profile-photo-file")?.addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    const preview = document.querySelector("#profile-photo-preview");
+    const note = document.querySelector("#profile-photo-feedback");
+    if (!file || !preview || !note) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      note.textContent = "Choisissez une image JPEG, PNG ou WebP de 5 Mo maximum.";
+      note.style.color = "#ff9aa8";
+      note.classList.remove("hidden");
+      event.target.value = "";
+      return;
+    }
+    preview.style.backgroundImage = "url('" + URL.createObjectURL(file) + "')";
+    note.textContent = "Aperçu prêt. Appuyez sur « Envoyer la photo » pour la soumettre à la modération.";
+    note.style.color = "#a7e0bd";
+    note.classList.remove("hidden");
+  });
   document.querySelector("#upload-profile-photo")?.addEventListener("click", uploadProfilePhoto);
   document.querySelector("#close-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#cancel-profile-editor")?.addEventListener("click", closeProfileEditor);
