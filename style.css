@@ -61,3 +61,7 @@
   .mobile-nav-discover small{font-weight:700}
   .toast{bottom:calc(82px + env(safe-area-inset-bottom))}
 }
+
+
+/* Consistent Lucide-style mobile navigation icons */
+@media(max-width:650px){.mobile-nav-item .nav-icon{width:22px;height:22px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}.mobile-nav-item.active .nav-icon{stroke-width:2}}

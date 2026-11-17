@@ -60,7 +60,7 @@
   function showView(view) {
     if (!viewMeta[view]) return;
     $$(".view").forEach(el => el.classList.toggle("active", el.id === "view-" + view));
-    $(".nav-item[data-view], .mobile-nav-item[data-view]").forEach(el => {
+    $$(".nav-item[data-view], .mobile-nav-item[data-view]").forEach(el => {
       const active = el.dataset.view === view;
       el.classList.toggle("active", active);
       if (el.classList.contains("mobile-nav-item")) {
@@ -106,7 +106,7 @@
     showAuth(window.__baddielinkMode === "signup" ? "login" : "signup");
   });
 
-  $(".nav-item[data-view], .mobile-nav-item[data-view], .workspace-icon-button[data-view]").forEach(button => {
+  $$(".nav-item[data-view], .mobile-nav-item[data-view], .workspace-icon-button[data-view]").forEach(button => {
     button.addEventListener("click", () => showView(button.dataset.view));
   });
   $$("[data-goto]").forEach(button => {
