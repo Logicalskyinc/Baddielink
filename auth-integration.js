@@ -115,8 +115,10 @@
     document.querySelector("#profile-grid").innerHTML = "";
     document.querySelector("#likes-grid").innerHTML = "";
     document.querySelector("#view-discover .filter-row")?.classList.add("hidden");
-    document.querySelector("#view-discover").innerHTML =
-      '<div class="empty-state"><span>✦</span><h3>Votre compte est connecté</h3><p>La découverte des membres réels sera activée après validation des règles de visibilité et de sécurité.</p></div>';
+    const discoverStatus = document.querySelector("#discover-member-status");
+    if (discoverStatus) {
+      discoverStatus.textContent = "Votre compte est connecté. La découverte des membres sera activée après validation des règles de visibilité et de sécurité.";
+    }
     document.querySelector("#view-messages").innerHTML =
       '<div class="empty-state"><span>✉</span><h3>Messagerie en préparation</h3><p>La messagerie réelle sera activée après les tests d’accès et de confidentialité.</p></div>';
     document.querySelector("#view-likes").innerHTML =
