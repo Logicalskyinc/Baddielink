@@ -114,7 +114,7 @@
     document.querySelector("#auth-signout").classList.add("hidden");
 
     if (profile.moderation_status !== "approved") {
-      message("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
+      window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
     location.hash = "espace";
   }
@@ -148,7 +148,10 @@
           email,
           password,
           options: {
-            data: { display_name: displayName },
+            data: {
+              display_name: displayName,
+              username: displayName.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 18)
+            },
             emailRedirectTo: window.location.origin + window.location.pathname
           }
         });
