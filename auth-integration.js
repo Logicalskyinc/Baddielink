@@ -78,7 +78,7 @@
   async function enterAuthenticatedApp(user) {
     const { data: profile, error } = await client
       .from("profiles")
-      .select("display_name, username, moderation_status, is_discoverable")
+      .select("display_name, username, bio, city, interested_in, moderation_status, is_discoverable")
       .eq("id", user.id)
       .single();
     if (error) throw error;
@@ -96,8 +96,18 @@
 
     const sidebarStatus = document.querySelector(".sidebar-user span");
     if (sidebarStatus) sidebarStatus.textContent = "Compte connecté";
-    const profileSubtitle = document.querySelector("#profile-name")?.parentElement?.querySelector(".muted");
-    if (profileSubtitle) profileSubtitle.textContent = "@" + profile.username + " · Côte d’Ivoire";
+    const profileSubtitle = document.querySelector("#profile-subtitle");
+    if (profileSubtitle) profileSubtitle.textContent = "@" + profile.username + " · " + profile.city + " · Côte d’Ivoire";
+    const profileBio = document.querySelector("#profile-bio");
+    if (profileBio) profileBio.textContent = profile.bio || "Ajoutez une courte présentation.";
+    const interestLabels = { friendship: "Amitié", dating: "Rencontres", networking: "Réseautage", discussion: "Discussions", events: "Événements" };
+    const interestText = (profile.interested_in || []).map(value => interestLabels[value] || value).join(" · ");
+    const profileInterests = document.querySelector("#profile-interests");
+    if (profileInterests) profileInterests.textContent = interestText || "Aucun centre d’intérêt ajouté.";
+    const visibility = document.querySelector("#profile-visibility");
+    if (visibility) visibility.textContent = profile.is_discoverable ? "Découvrable (après approbation)" : "Non visible dans la découverte";
+    const editButton = document.querySelector("#edit-profile");
+    editButton?.addEventListener("click", () => openProfileEditor(profile));
 
     // Never expose prototype profiles, fake likes, or sample conversations to real members.
     document.querySelector("#profile-grid").innerHTML = "";
@@ -118,6 +128,112 @@
     }
     location.hash = "espace";
   }
+
+  function openProfileEditor(profile) {
+    const modal = document.querySelector("#profile-editor-modal");
+    const form = document.querySelector("#profile-editor-form");
+    if (!modal || !form) return;
+    form.elements.display_name.value = profile.display_name || "";
+    form.elements.username.value = profile.username || "";
+    form.elements.city.value = profile.city || "Abidjan";
+    form.elements.bio.value = profile.bio || "";
+    form.elements.is_discoverable.checked = Boolean(profile.is_discoverable);
+    const selected = new Set(profile.interested_in || []);
+    form.querySelectorAll('input[name="interested_in"]').forEach(input => {
+      input.checked = selected.has(input.value);
+    });
+    document.querySelector("#profile-editor-feedback").classList.add("hidden");
+    modal.classList.remove("hidden");
+  }
+
+  function closeProfileEditor() {
+    document.querySelector("#profile-editor-modal")?.classList.add("hidden");
+  }
+
+  document.querySelector("#edit-profile")?.addEventListener("click", () => {
+    const name = document.querySelector("#profile-name")?.textContent || "";
+    const username = document.querySelector("#profile-subtitle")?.textContent?.match(/^@([^ ]+)/)?.[1] || "";
+    openProfileEditor({
+      display_name: name,
+      username,
+      city: document.querySelector("#profile-subtitle")?.textContent?.split(" · ")[1] || "Abidjan",
+      bio: document.querySelector("#profile-bio")?.textContent === "Ajoutez une courte présentation." ? "" : document.querySelector("#profile-bio")?.textContent,
+      interested_in: [],
+      is_discoverable: document.querySelector("#profile-visibility")?.textContent?.startsWith("Découvrable") || false
+    });
+  });
+  document.querySelector("#close-profile-editor")?.addEventListener("click", closeProfileEditor);
+  document.querySelector("#cancel-profile-editor")?.addEventListener("click", closeProfileEditor);
+  document.querySelector("#profile-editor-modal")?.addEventListener("click", event => {
+    if (event.target.id === "profile-editor-modal") closeProfileEditor();
+  });
+
+  document.querySelector("#profile-editor-form")?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const feedback = document.querySelector("#profile-editor-feedback");
+    const save = document.querySelector("#save-profile");
+    const displayName = form.elements.display_name.value.trim();
+    const username = form.elements.username.value.trim().toLowerCase();
+    const city = form.elements.city.value.trim();
+    const bio = form.elements.bio.value.trim();
+    const interests = [...form.querySelectorAll('input[name="interested_in"]:checked')].map(input => input.value);
+    const isDiscoverable = form.elements.is_discoverable.checked;
+
+    feedback.classList.add("hidden");
+    const showFeedback = (text, isError = false) => {
+      feedback.textContent = text;
+      feedback.style.color = isError ? "#ff9aa8" : "#a7e0bd";
+      feedback.classList.remove("hidden");
+    };
+
+    if (displayName.length < 1 || displayName.length > 60) return showFeedback("Le nom affiché doit contenir entre 1 et 60 caractères.", true);
+    if (!/^[a-z0-9_]{3,24}$/.test(username)) return showFeedback("Le nom d’utilisateur doit contenir 3 à 24 caractères : lettres minuscules, chiffres ou _.", true);
+    if (!city || city.length > 80) return showFeedback("Indiquez une ville valide (80 caractères maximum).", true);
+    if (bio.length > 500) return showFeedback("Votre présentation ne peut pas dépasser 500 caractères.", true);
+
+    save.disabled = true;
+    save.textContent = "Enregistrement…";
+    try {
+      const { data, error } = await client
+        .from("profiles")
+        .update({
+          display_name: displayName,
+          username,
+          city,
+          bio,
+          interested_in: interests,
+          is_discoverable: isDiscoverable
+        })
+        .eq("id", client.auth.getUser ? (await client.auth.getUser()).data.user.id : "")
+        .select("display_name, username, city, bio, interested_in, is_discoverable, moderation_status")
+        .single();
+      if (error) throw error;
+
+      document.querySelector("#profile-name").textContent = data.display_name;
+      document.querySelector("#sidebar-name").textContent = data.display_name;
+      document.querySelector("#profile-subtitle").textContent = "@" + data.username + " · " + data.city + " · Côte d’Ivoire";
+      document.querySelector("#profile-bio").textContent = data.bio || "Ajoutez une courte présentation.";
+      const labels = { friendship: "Amitié", dating: "Rencontres", networking: "Réseautage", discussion: "Discussions", events: "Événements" };
+      document.querySelector("#profile-interests").textContent = (data.interested_in || []).map(value => labels[value] || value).join(" · ") || "Aucun centre d’intérêt ajouté.";
+      document.querySelector("#profile-visibility").textContent = data.is_discoverable ? "Découvrable (après approbation)" : "Non visible dans la découverte";
+      document.querySelectorAll(".avatar-user").forEach(el => { el.textContent = data.display_name.trim().charAt(0).toUpperCase() || "B"; });
+      closeProfileEditor();
+      window.BaddieLinkUI?.toast("Votre profil a été mis à jour.");
+      if (data.moderation_status !== "approved") {
+        window.BaddieLinkUI?.toast("Profil enregistré. Il restera invisible jusqu’à son approbation.");
+      }
+    } catch (error) {
+      console.error("BaddieLink profile update failed:", error);
+      const text = error.code === "23505"
+        ? "Ce nom d’utilisateur est déjà utilisé."
+        : (error.message || "La mise à jour du profil a échoué.");
+      showFeedback(text, true);
+    } finally {
+      save.disabled = false;
+      save.textContent = "Enregistrer";
+    }
+  });
 
   async function submitAuth(event) {
     event.preventDefault();
