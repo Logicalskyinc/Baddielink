@@ -2,7 +2,7 @@
 
 **Status:** Experimental scaffold only. Not integrated into BaddieLink and not approved for production use.
 
-This isolated crate evaluates whether the OpenMLS Messaging Layer Security (MLS) implementation can run in BaddieLink's browser-first frontend through WebAssembly. It is based on the upstream OpenMLS `openmls-wasm` experiment, with the workspace path dependencies changed to versioned crates.io dependencies.
+This isolated crate evaluates whether the OpenMLS Messaging Layer Security (MLS) implementation can run in BaddieLink's browser-first frontend through WebAssembly. The wrapper and sample harness are adapted from upstream OpenMLS revision `bcde2afd3d1fb6045753b544ea290605081abe20`; see `NOTICE.md` and `LICENSE`. It is based on the upstream OpenMLS `openmls-wasm` experiment, with the workspace path dependencies changed to versioned crates.io dependencies.
 
 ## Why this exists
 
@@ -21,10 +21,10 @@ From this directory:
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack
-wasm-pack build --target web
+./build.sh
 ```
 
-Then serve this directory over localhost using a static HTTP server and open `static/index.html`. Do not open it using a `file://` URL.
+Then serve the generated `pkg/` directory over localhost using a static HTTP server and open `/index.html`. Do not open it using a `file://` URL. The build script copies the browser harness beside the generated WebAssembly JavaScript and binary files.
 
 ## What this first harness checks
 
