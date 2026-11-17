@@ -1,39 +1,43 @@
 # BaddieLink 🇨🇮
 
-BaddieLink est une plateforme sociale conçue pour rapprocher les personnes majeures en Côte d’Ivoire.
+BaddieLink is an 18+ social discovery platform for Côte d’Ivoire, built by LogicalSky. The interface is French-first and localized for XOF, the +225 phone prefix, and the Africa/Abidjan timezone.
 
-## Localisation
-- Langue de l’interface : français
-- Pays : Côte d’Ivoire
-- Indicatif téléphonique : +225
-- Devise : franc CFA (XOF / FCFA)
-- Fuseau horaire : Africa/Abidjan
-- Distances : kilomètres
+## Current implementation
 
-## Démarrer
-Ouvrir `index.html` dans un navigateur moderne. Aucun outil de compilation n’est requis pour cette première version frontend.
+The current web application uses Supabase Auth and the existing Supabase project. The feature branch includes:
 
-## Fonctionnalités de démonstration
-- Écran d’accueil et contrôle d’âge déclaratif
-- Inscription et connexion de démonstration
-- Création de profil
-- Découverte de profils et appréciations
-- Conversations locales de démonstration
-- Présentation des cadeaux et du portefeuille
-- Préférences et paramètres du compte
+- Account signup and login, adult self-declaration, and session restoration.
+- Member profiles, discoverability preferences, approved-member discovery, likes, and reputation display.
+- Profile photo uploads to private Supabase Storage, with moderation status controlling public visibility.
+- Exhibitions: event discovery, event submissions, organizer applications, event interests, and reporting.
+- A separate, server-authorized Admin Console for event, organizer, photo, member, and report moderation.
+- Owner-only moderator management and an append-only administrative audit log.
+- A default discoverability setting for new accounts. Existing member preferences are preserved.
 
-## Limites actuelles
-Cette version est un prototype frontend. Les comptes ne sont pas authentifiés par un serveur. Les profils et conversations sont des exemples locaux. Aucun paiement, achat de crédits, transfert, vérification d’identité, modération serveur ou messagerie temps réel n’est connecté. Les actions de démonstration ne doivent pas être considérées comme des transactions réelles.
+## Important limitations
 
-## Architecture
-- `index.html` : application
-- `signup.html` : point d’entrée inscription
-- `style.css` : styles responsives
-- `script.js` : interactions frontend
+This is an actively developed web application, not a completed social network. The following are not implemented as production features yet:
 
-## Prochaines étapes techniques
-1. Concevoir le schéma de données et les politiques d’accès.
-2. Connecter une authentification sécurisée.
-3. Ajouter la vérification d’âge et les mécanismes de sécurité adaptés.
-4. Implémenter la messagerie temps réel, les signalements et la modération.
-5. Intégrer un prestataire de paiement compatible avec la Côte d’Ivoire après validation des exigences légales et opérationnelles.
+- Rooms/salons, communities, moments/status, and live voice rooms. Their placeholder panels are hidden until functional implementations are ready.
+- Production direct messaging. The current message screen still contains demonstration conversations and must not be used to contact real members.
+- BaddieCoins purchases, wallet transactions, and payments. No real balance or payment processing is enabled.
+- Formal identity or age verification. Adult access currently relies on a user declaration and is not an official identity check.
+- End-to-end encrypted messaging. The OpenMLS browser proof of concept is isolated experimental work and is not integrated, compiled, or approved for production use.
+
+Admin moderation is enforced by database authorization functions and row-level security. Never expose a Supabase service-role key in browser code. A successful static-site deploy does not prove every authenticated workflow has passed end-to-end testing.
+
+## Run locally
+
+Serve the repository root with any static HTTP server and open `index.html`. The app loads Supabase JS v2 from its configured CDN and reads the public project URL/key from `supabase-config.js`. Do not open the file directly with a `file://` URL if browser module or authentication redirect behavior is required.
+
+## Main files
+
+- `index.html` — application structure and member/admin interfaces.
+- `style.css` — responsive styling.
+- `script.js` — shared navigation and presentation behavior.
+- `auth-integration.js` — Supabase authentication, profiles, discovery, events, photo upload, and admin workflows.
+- `supabase/migrations/` — committed database migrations. A migration file is not applied to the hosted project merely because it is present in Git.
+
+## Release validation
+
+Use `docs/MANUAL_TEST_PLAN.md` before promoting changes. Preview and production currently share the existing Supabase project, so actions in preview can affect real accounts and records. Use read-only checks unless a real moderation action is explicitly intended. Production deployment is a separate step after branch review and validation.
