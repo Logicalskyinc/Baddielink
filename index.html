@@ -75,7 +75,24 @@
       </aside>
       <section class="workspace">
         <div class="mobile-head"><a class="brand" href="#"><span class="brand-mark">B</span><span>Baddie<span class="brand-accent">Link</span></span></a></div>
-        <div class="workspace-head"><div><p class="eyebrow" id="view-kicker">VOTRE ESPACE</p><h1 id="view-title">Découvrir</h1><p class="muted" id="view-description">Découvrez les membres et les espaces de BaddieLink.</p></div><div class="workspace-actions"><button class="workspace-icon-button" type="button" data-view="wallet" aria-label="Ouvrir le portefeuille" title="BaddieCoins">◇</button><button class="workspace-icon-button notification-placeholder" type="button" disabled aria-label="Notifications bientôt disponibles" title="Notifications bientôt disponibles">♧</button><span class="location-chip">⌖ Côte d’Ivoire</span></div></div>
+        <div class="workspace-head"><div><p class="eyebrow" id="view-kicker">VOTRE ESPACE</p><h1 id="view-title">Découvrir</h1><p class="muted" id="view-description">Découvrez les membres et les espaces de BaddieLink.</p></div><div class="workspace-actions"><button class="workspace-icon-button hidden" type="button" id="admin-mode-toggle" aria-label="Ouvrir la console d’administration" title="Administration">⚙</button><button class="workspace-icon-button" type="button" data-view="wallet" aria-label="Ouvrir le portefeuille" title="BaddieCoins">◇</button><button class="workspace-icon-button notification-placeholder" type="button" disabled aria-label="Notifications bientôt disponibles" title="Notifications bientôt disponibles">♧</button><span class="location-chip">⌖ Côte d’Ivoire</span></div></div>
+
+        <section class="admin-console hidden" id="admin-console" aria-label="Console d’administration">
+          <div class="admin-console-top"><div><p class="eyebrow">ESPACE PRIVÉ</p><h2>Administration BaddieLink</h2><p class="muted">Modération, vérification et sécurité de la plateforme.</p></div><button class="button button-outline" type="button" id="admin-back-member">Vue membre</button></div>
+          <nav class="admin-tabs" aria-label="Outils d’administration">
+            <button class="admin-tab active" type="button" data-admin-tab="overview">Vue d’ensemble</button>
+            <button class="admin-tab" type="button" data-admin-tab="events">Événements</button>
+            <button class="admin-tab" type="button" data-admin-tab="organizers">Organisateurs</button>
+            <button class="admin-tab" type="button" data-admin-tab="photos">Photos</button>
+            <button class="admin-tab" type="button" data-admin-tab="event-reports">Signalements événements</button>
+            <button class="admin-tab" type="button" data-admin-tab="member-reports">Sécurité membres</button>
+            <button class="admin-tab" type="button" data-admin-tab="members">Membres</button>
+            <button class="admin-tab" type="button" data-admin-tab="audit">Journal d’audit</button>
+          </nav>
+          <div class="admin-console-status" id="admin-console-status" role="status" aria-live="polite">Chargement des données administratives…</div>
+          <div class="admin-metrics" id="admin-metrics"></div>
+          <div class="admin-queue" id="admin-queue"></div>
+        </section>
         <div class="view active" id="view-discover">
           <div class="discover-hub">
             <div class="discover-tabs" role="tablist" aria-label="Explorer BaddieLink">
