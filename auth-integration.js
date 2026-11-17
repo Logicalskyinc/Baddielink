@@ -148,7 +148,8 @@
     document.querySelector("#admin-mode-toggle").textContent = "⚙";
     document.querySelector("#admin-mode-toggle").title = "Ouvrir la console d’administration";
     window.BaddieLinkUI?.showView("discover");
-    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();\n    else location.hash = "espace";
+    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
+    else location.hash = "espace";
   }
 
   async function loadAdminTab(tab) {
@@ -329,8 +330,12 @@
     const { data: adminAccess, error: adminAccessError } = await client.rpc("is_baddielink_admin");
     isBaddieLinkAdmin = !adminAccessError && adminAccess === true;
     const adminToggle = document.querySelector("#admin-mode-toggle");
-    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);\n    const rolesTab = document.querySelector("#admin-roles-tab");\n    if (rolesTab) rolesTab.classList.toggle("hidden", !adminAccess || adminAccessError);
-\n    const displayName = profile.display_name || user.email || "Membre BaddieLink";
+    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);
+    const { data: ownerAccess } = isBaddieLinkAdmin ? await client.rpc("is_baddielink_owner") : { data: false };
+    const rolesTab = document.querySelector("#admin-roles-tab");
+    if (rolesTab) rolesTab.classList.toggle("hidden", ownerAccess !== true);
+
+    const displayName = profile.display_name || user.email || "Membre BaddieLink";
     document.querySelector("#sidebar-name").textContent = displayName;
     document.querySelector("#profile-name").textContent = displayName;
     document.querySelectorAll(".avatar-user").forEach(el => {
