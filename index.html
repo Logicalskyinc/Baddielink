@@ -119,6 +119,18 @@
                   <p id="event-create-feedback" class="form-feedback hidden" role="status" aria-live="polite"></p><button class="button button-primary" type="submit" id="event-create-submit">Envoyer l’événement</button>
                 </form>
               </div>
+              <div class="event-create-card organizer-application-card">
+                <h3>Devenir organisateur vérifié</h3>
+                <p>Les organisateurs vérifiés peuvent publier directement leurs événements après approbation de leur demande.</p>
+                <form id="organizer-application-form" class="event-form">
+                  <div class="field"><label for="organizer-application-name">Nom de l’organisation</label><input id="organizer-application-name" name="organization_name" minlength="2" maxlength="120" required></div>
+                  <div class="field"><label for="organizer-application-type">Type</label><select id="organizer-application-type" name="organization_type"><option value="business">Entreprise</option><option value="association">Association</option><option value="venue">Lieu / salle</option><option value="independent">Organisateur indépendant</option><option value="other">Autre</option></select></div>
+                  <div class="field"><label for="organizer-application-website">Site web (facultatif)</label><input id="organizer-application-website" name="website_url" type="url" maxlength="300" placeholder="https://"></div>
+                  <div class="field"><label for="organizer-application-description">Présentez votre activité</label><textarea id="organizer-application-description" name="description" minlength="20" maxlength="1200" rows="3" required></textarea></div>
+                  <p id="organizer-application-feedback" class="form-feedback hidden" role="status" aria-live="polite"></p>
+                  <button class="button button-outline" type="submit" id="organizer-application-submit">Envoyer la demande</button>
+                </form>
+              </div>
             </section>
           </div>
         </div>
