@@ -76,6 +76,208 @@
     return true;
   }
 
+
+  let isBaddieLinkAdmin = false;
+  let activeAdminTab = "overview";
+
+  function adminNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined && value !== null) el.textContent = String(value);
+    return el;
+  }
+
+  function adminButton(label, action, id, reasonPrompt = false) {
+    const button = adminNode("button", "button button-outline admin-action", label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      if (!isBaddieLinkAdmin) return;
+      const reason = reasonPrompt ? (window.prompt("Motif de cette décision (facultatif) :") || "") : "";
+      button.disabled = true;
+      try {
+        const { error } = await client.rpc(action, { ...id, p_reason: reason });
+        if (error) throw error;
+        window.BaddieLinkUI?.toast("Action enregistrée.");
+        await loadAdminTab(activeAdminTab);
+      } catch (error) {
+        console.error("BaddieLink admin action failed:", error);
+        window.BaddieLinkUI?.toast(error.message || "Action administrative impossible.", true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
+  function adminCard(title, subtitle, detail) {
+    const card = adminNode("article", "admin-item");
+    const head = adminNode("div", "admin-item-head");
+    const copy = adminNode("div", "admin-item-copy");
+    copy.append(adminNode("h3", "", title), adminNode("p", "", subtitle));
+    head.append(copy);
+    card.append(head);
+    if (detail) card.append(adminNode("p", "admin-item-detail", detail));
+    return { card, head };
+  }
+
+  function setAdminStatus(text, isError = false) {
+    const status = document.querySelector("#admin-console-status");
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle("error", isError);
+  }
+
+  function showAdminConsole() {
+    if (!isBaddieLinkAdmin) return;
+    document.querySelectorAll(".view").forEach(el => el.classList.remove("active"));
+    document.querySelector("#admin-console")?.classList.remove("hidden");
+    document.querySelector("#mobile-bottom-nav")?.classList.add("hidden");
+    document.querySelector(".mobile-bottom-nav")?.classList.add("hidden");
+    document.querySelector("#view-kicker").textContent = "ESPACE PRIVÉ";
+    document.querySelector("#view-title").textContent = "Administration";
+    document.querySelector("#view-description").textContent = "Console de gestion et de modération BaddieLink.";
+    document.querySelector("#admin-mode-toggle").textContent = "Membre";
+    document.querySelector("#admin-mode-toggle").title = "Revenir à l’espace membre";
+    location.hash = "admin";
+    loadAdminTab(activeAdminTab);
+  }
+
+  function showMemberWorkspace() {
+    document.querySelector("#admin-console")?.classList.add("hidden");
+    document.querySelector(".mobile-bottom-nav")?.classList.remove("hidden");
+    document.querySelector("#admin-mode-toggle").textContent = "⚙";
+    document.querySelector("#admin-mode-toggle").title = "Ouvrir la console d’administration";
+    window.BaddieLinkUI?.showView("discover");
+    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();\n    else location.hash = "espace";
+  }
+
+  async function loadAdminTab(tab) {
+    if (!isBaddieLinkAdmin) return;
+    activeAdminTab = tab;
+    document.querySelectorAll("[data-admin-tab]").forEach(button => button.classList.toggle("active", button.dataset.adminTab === tab));
+    const queue = document.querySelector("#admin-queue");
+    const metrics = document.querySelector("#admin-metrics");
+    if (!queue || !metrics) return;
+    queue.replaceChildren();
+    metrics.replaceChildren();
+    setAdminStatus("Chargement…");
+    try {
+      if (tab === "overview") {
+        const tables = [
+          ["Événements à examiner", "events", "status", "pending_review"],
+          ["Demandes organisateur", "organizer_applications", "status", "pending"],
+          ["Photos à modérer", "profile_photos", "moderation_status", "pending"],
+          ["Signalements d’événements", "event_reports", "status", "pending"],
+          ["Signalements de membres", "reports", "status", "open"],
+          ["Profils en attente", "profiles", "moderation_status", "pending"]
+        ];
+        const counts = await Promise.all(tables.map(async item => {
+          const { count, error } = await client.from(item[1]).select("id", { count: "exact", head: true }).eq(item[2], item[3]);
+          if (error) throw error;
+          return { label: item[0], count: count || 0 };
+        }));
+        counts.forEach(item => {
+          const metric = adminNode("div", "admin-metric");
+          metric.append(adminNode("strong", "", item.count), adminNode("span", "", item.label));
+          metrics.append(metric);
+        });
+        const intro = adminNode("div", "admin-empty");
+        intro.append(adminNode("h3", "", "Centre de contrôle"), adminNode("p", "", "Sélectionnez une file pour examiner les éléments. Chaque décision de modération est enregistrée dans le journal d’audit."));
+        queue.append(intro);
+        setAdminStatus("Données administratives chargées.");
+        return;
+      }
+
+      if (tab === "events") {
+        const { data, error } = await client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,entry_fee_xof,created_by,created_at").eq("status","pending_review").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.title, item.organizer_name+" · "+item.category, item.city+(item.district ? " · "+item.district : "")+" · "+item.venue_name+" · "+new Date(item.starts_at).toLocaleString("fr-FR"));
+          head.append(adminNode("span","admin-status-pill","À examiner"));
+          card.append(adminNode("p","admin-item-detail",item.description));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Publier","admin_review_event",{p_event_id:item.id,p_decision:"publish"},true),adminButton("Rejeter","admin_review_event",{p_event_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "organizers") {
+        const { data, error } = await client.from("organizer_applications").select("id,user_id,organization_name,organization_type,website_url,description,created_at").eq("status","pending").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.organization_name,item.organization_type+" · Compte "+item.user_id.slice(0,8),item.description);
+          if(item.website_url) card.append(adminNode("p","admin-item-detail",item.website_url));
+          head.append(adminNode("span","admin-status-pill","En attente"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Approuver","admin_review_organizer_application",{p_application_id:item.id,p_decision:"approve"},true),adminButton("Rejeter","admin_review_organizer_application",{p_application_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "photos") {
+        const { data, error } = await client.from("profile_photos").select("id,user_id,object_path,created_at").eq("moderation_status","pending").order("created_at",{ascending:true}).limit(40);
+        if (error) throw error;
+        for (const item of (data || [])) {
+          const {card,head}=adminCard("Photo de profil","Compte "+item.user_id.slice(0,8),new Date(item.created_at).toLocaleString("fr-FR"));
+          const {data:signed,error:signedError}=await client.storage.from("baddielink-profile-photos").createSignedUrl(item.object_path,600);
+          if(!signedError && signed?.signedUrl){const img=adminNode("img","admin-photo-preview");img.src=signed.signedUrl;img.alt="Photo soumise à modération";card.append(img);}
+          head.append(adminNode("span","admin-status-pill","En attente"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Approuver","admin_review_profile_photo",{p_photo_id:item.id,p_decision:"approve"},true),adminButton("Rejeter","admin_review_profile_photo",{p_photo_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        }
+      } else if (tab === "event-reports") {
+        const { data, error } = await client.from("event_reports").select("id,event_id,reporter_id,reason,details,created_at,events(title)").eq("status","pending").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.events?.title || "Événement signalé",item.reason+" · Compte "+item.reporter_id.slice(0,8),item.details || "Aucun détail fourni.");
+          head.append(adminNode("span","admin-status-pill","Nouveau"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Marquer examiné","admin_review_event_report",{p_report_id:item.id,p_decision:"reviewed"},true),adminButton("Classer sans suite","admin_review_event_report",{p_report_id:item.id,p_decision:"dismissed"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "member-reports") {
+        const { data, error } = await client.from("reports").select("id,reporter_id,reported_user_id,message_id,reason,details,status,created_at").in("status",["open","reviewing"]).order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard("Signalement de membre",item.reason+" · "+(item.reported_user_id ? "Compte "+item.reported_user_id.slice(0,8) : "Message "+String(item.message_id).slice(0,8)),item.details || "Aucun détail fourni.");
+          head.append(adminNode("span","admin-status-pill",item.status));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("En cours","admin_review_member_report",{p_report_id:item.id,p_decision:"reviewing"},true),adminButton("Action prise","admin_review_member_report",{p_report_id:item.id,p_decision:"actioned"},true),adminButton("Clôturer","admin_review_member_report",{p_report_id:item.id,p_decision:"closed"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "members") {
+        const { data, error } = await client.from("profiles").select("id,username,display_name,city,moderation_status,created_at").order("created_at",{ascending:false}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.display_name+" (@"+item.username+")",item.city+" · "+item.id.slice(0,8), "Statut : "+item.moderation_status+" · Inscription : "+new Date(item.created_at).toLocaleDateString("fr-FR"));
+          head.append(adminNode("span","admin-status-pill",item.moderation_status));
+          const actions=adminNode("div","admin-item-actions");
+          if(item.moderation_status!=="approved") actions.append(adminButton("Approuver","admin_review_member",{p_user_id:item.id,p_decision:"approve"},true));
+          if(item.moderation_status!=="restricted") actions.append(adminButton("Restreindre","admin_review_member",{p_user_id:item.id,p_decision:"restrict"},true));
+          if(item.moderation_status!=="removed") actions.append(adminButton("Retirer","admin_review_member",{p_user_id:item.id,p_decision:"remove"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "audit") {
+        const { data, error } = await client.from("admin_audit_log").select("id,actor_id,action,target_type,target_id,reason,created_at").order("created_at",{ascending:false}).limit(100);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.action.replaceAll("_"," "),item.target_type+" · "+item.target_id.slice(0,8),new Date(item.created_at).toLocaleString("fr-FR")+(item.reason ? " · "+item.reason : ""));
+          head.append(adminNode("span","admin-status-pill","Journalisé")); queue.append(card);
+        });
+      }
+      if (!queue.children.length) queue.append(adminNode("div","admin-empty","Aucun élément dans cette file."));
+      setAdminStatus("File actualisée · "+queue.children.length+" élément(s).");
+    } catch (error) {
+      console.error("BaddieLink admin queue failed:", error);
+      setAdminStatus(error.message || "Impossible de charger cette file.", true);
+      queue.replaceChildren(adminNode("div","admin-empty","Les données n’ont pas pu être chargées. Vérifiez vos autorisations puis réessayez."));
+    }
+  }
+
+  document.querySelector("#admin-mode-toggle")?.addEventListener("click", () => {
+    if (document.querySelector("#admin-console")?.classList.contains("hidden")) showAdminConsole();
+    else showMemberWorkspace();
+  });
+  document.querySelector("#admin-back-member")?.addEventListener("click", showMemberWorkspace);
+  document.querySelectorAll("[data-admin-tab]").forEach(button => button.addEventListener("click", () => loadAdminTab(button.dataset.adminTab)));
+
   async function enterAuthenticatedApp(user) {
     currentUserId = user.id;
     const { data: profile, error } = await client
@@ -89,7 +291,12 @@
     document.querySelector("#welcome").classList.add("hidden");
     document.querySelector("#app-shell").classList.remove("hidden");
 
-    const displayName = profile.display_name || user.email || "Membre BaddieLink";
+
+    const { data: adminAccess, error: adminAccessError } = await client.rpc("is_baddielink_admin");
+    isBaddieLinkAdmin = !adminAccessError && adminAccess === true;
+    const adminToggle = document.querySelector("#admin-mode-toggle");
+    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);
+\n    const displayName = profile.display_name || user.email || "Membre BaddieLink";
     document.querySelector("#sidebar-name").textContent = displayName;
     document.querySelector("#profile-name").textContent = displayName;
     document.querySelectorAll(".avatar-user").forEach(el => {
