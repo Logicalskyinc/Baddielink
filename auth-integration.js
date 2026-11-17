@@ -130,7 +130,239 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents()]);
     location.hash = "espace";
+  }
+
+  function setProfilePhoto(url) {
+    document.querySelectorAll(".avatar-user").forEach(el => {
+      el.textContent = "";
+      el.style.backgroundImage = url ? "url('" + url.replace(/'/g, "%27") + "')" : "";
+      el.classList.toggle("has-photo", Boolean(url));
+    });
+    const preview = document.querySelector("#profile-photo-preview");
+    if (preview && url) preview.style.backgroundImage = "url('" + url.replace(/'/g, "%27") + "')";
+  }
+
+  async function loadProfilePhoto() {
+    const { data, error } = await client.from("profile_photos")
+      .select("object_path, moderation_status")
+      .eq("user_id", currentUserId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const photo = data?.[0];
+    if (!photo) return;
+    const { data: signed, error: signedError } = await client.storage
+      .from("baddielink-profile-photos").createSignedUrl(photo.object_path, 3600);
+    if (signedError) throw signedError;
+    if (signed?.signedUrl) setProfilePhoto(signed.signedUrl);
+    const note = document.querySelector("#profile-photo-feedback");
+    if (note && photo.moderation_status === "pending") {
+      note.textContent = "Votre dernière photo est en attente de modération. Elle n’est pas encore visible publiquement.";
+      note.classList.remove("hidden");
+    }
+  }
+
+  async function loadReputation() {
+    const { data, error } = await client.from("reputation_profiles")
+      .select("score, rank").eq("user_id", currentUserId).maybeSingle();
+    if (error) throw error;
+    const labels = { beginner: "Débutant", novice: "Novice", intermediate: "Intermédiaire", advanced: "Avancé", expert: "Expert", legend: "Légende" };
+    const target = document.querySelector("#profile-reputation");
+    if (target) target.textContent = "☆☆☆☆☆ · " + (labels[data?.rank] || "Débutant") + " · " + (data?.score ?? 0) + " points";
+  }
+
+  async function uploadProfilePhoto() {
+    const input = document.querySelector("#profile-photo-file");
+    const button = document.querySelector("#upload-profile-photo");
+    const note = document.querySelector("#profile-photo-feedback");
+    const file = input?.files?.[0];
+    const show = (text, isError = false) => {
+      note.textContent = text;
+      note.style.color = isError ? "#ff9aa8" : "#a7e0bd";
+      note.classList.remove("hidden");
+    };
+    if (!file) return show("Choisissez d’abord une image.", true);
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return show("Format non accepté. Utilisez JPEG, PNG ou WebP.", true);
+    if (file.size > 5 * 1024 * 1024) return show("La photo dépasse la limite de 5 Mo.", true);
+    const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" })[file.type];
+    const path = currentUserId + "/" + crypto.randomUUID() + "." + extension;
+    button.disabled = true;
+    button.textContent = "Envoi…";
+    try {
+      const { error: uploadError } = await client.storage.from("baddielink-profile-photos")
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { error: rowError } = await client.from("profile_photos").insert({
+        user_id: currentUserId, object_path: path, display_order: 0, moderation_status: "pending"
+      });
+      if (rowError) {
+        await client.storage.from("baddielink-profile-photos").remove([path]);
+        throw rowError;
+      }
+      const preview = document.querySelector("#profile-photo-preview");
+      const localUrl = URL.createObjectURL(file);
+      if (preview) preview.style.backgroundImage = "url('" + localUrl + "')";
+      show("Photo envoyée. Elle restera privée pour les autres membres jusqu’à son approbation.");
+      input.value = "";
+    } catch (error) {
+      console.error("BaddieLink profile photo upload failed:", error);
+      show(error.message || "L’envoi de la photo a échoué.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Envoyer la photo";
+    }
+  }
+
+  const eventCategoryLabels = { concert: "Concert", party: "Soirée", exhibition: "Exposition", networking: "Réseautage", community: "Communauté", culture: "Culture", sports: "Sport", other: "Autre" };
+  function eventNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined) el.textContent = value;
+    return el;
+  }
+  function formatEventDate(value) {
+    return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Abidjan" }).format(new Date(value));
+  }
+
+  async function loadEvents() {
+    const list = document.querySelector("#events-list");
+    if (!list) return;
+    list.replaceChildren(eventNode("p", "discover-note", "Chargement des événements…"));
+    try {
+      let query = client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status")
+        .eq("status", "published").gte("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(50);
+      const city = document.querySelector("#event-city-filter")?.value;
+      const category = document.querySelector("#event-category-filter")?.value;
+      if (city) query = query.eq("city", city);
+      if (category) query = query.eq("category", category);
+      const [{ data: events, error }, { data: interests, error: interestError }] = await Promise.all([
+        query,
+        client.from("event_interests").select("event_id").eq("user_id", currentUserId)
+      ]);
+      if (error) throw error;
+      if (interestError) throw interestError;
+      const interested = new Set((interests || []).map(row => row.event_id));
+      list.replaceChildren();
+      if (!events?.length) {
+        list.append(eventNode("p", "discover-note", "Aucun événement publié ne correspond à ces filtres pour le moment."));
+        return;
+      }
+      events.forEach(event => {
+        const card = eventNode("article", "event-card");
+        const meta = eventNode("div", "event-meta", (eventCategoryLabels[event.category] || "Événement") + " · " + event.city + (event.district ? " · " + event.district : ""));
+        const title = eventNode("h3", "", event.title);
+        const desc = eventNode("p", "event-description", event.description);
+        const date = eventNode("p", "event-detail", "📅 " + formatEventDate(event.starts_at));
+        const venue = eventNode("p", "event-detail", "⌖ " + event.venue_name + " · " + event.address);
+        const organizer = eventNode("p", "event-detail", "Organisé par " + event.organizer_name);
+        const fee = eventNode("p", "event-detail", event.entry_fee_xof > 0 ? "Entrée : " + Number(event.entry_fee_xof).toLocaleString("fr-FR") + " XOF" : "Entrée gratuite");
+        const action = eventNode("button", "button button-outline event-interest", interested.has(event.id) ? "Ne plus suivre" : "Intéressé(e)");
+        action.type = "button";
+        action.addEventListener("click", async () => {
+          action.disabled = true;
+          try {
+            if (interested.has(event.id)) {
+              const { error: removeError } = await client.from("event_interests").delete().eq("event_id", event.id).eq("user_id", currentUserId);
+              if (removeError) throw removeError;
+              interested.delete(event.id);
+              action.textContent = "Intéressé(e)";
+            } else {
+              const { error: addError } = await client.from("event_interests").insert({ event_id: event.id, user_id: currentUserId });
+              if (addError) throw addError;
+              interested.add(event.id);
+              action.textContent = "Ne plus suivre";
+            }
+            loadMyEvents();
+          } catch (error) {
+            window.BaddieLinkUI?.toast(error.message || "Impossible de modifier votre intérêt.", true);
+          } finally { action.disabled = false; }
+        });
+        card.append(meta, title, desc, date, venue, organizer, fee, action);
+        list.append(card);
+      });
+    } catch (error) {
+      console.error("BaddieLink events load failed:", error);
+      list.replaceChildren(eventNode("p", "discover-note", "Impossible de charger les événements. Réessayez."));
+    }
+  }
+
+  async function loadMyEvents() {
+    const target = document.querySelector("#my-events-list");
+    if (!target) return;
+    try {
+      const { data, error } = await client.from("event_interests")
+        .select("created_at, events(id,title,starts_at,city,status)")
+        .eq("user_id", currentUserId).order("created_at", { ascending: false }).limit(30);
+      if (error) throw error;
+      target.replaceChildren();
+      const rows = (data || []).filter(row => row.events);
+      if (!rows.length) {
+        target.append(eventNode("p", "muted", "Vous ne suivez encore aucun événement."));
+        return;
+      }
+      rows.forEach(row => {
+        const event = row.events;
+        const item = eventNode("p", "my-event-item", event.title + " · " + formatEventDate(event.starts_at) + " · " + event.city);
+        target.append(item);
+      });
+    } catch (error) {
+      console.error("BaddieLink personal events load failed:", error);
+      target.textContent = "Impossible de charger vos événements.";
+    }
+  }
+
+  async function submitEvent(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.querySelector("#event-create-submit");
+    const feedback = document.querySelector("#event-create-feedback");
+    const show = (text, isError = false) => {
+      feedback.textContent = text;
+      feedback.style.color = isError ? "#ff9aa8" : "#a7e0bd";
+      feedback.classList.remove("hidden");
+    };
+    const startsAt = new Date(form.elements.starts_at.value);
+    const endsAt = form.elements.ends_at.value ? new Date(form.elements.ends_at.value) : null;
+    if (!Number.isFinite(startsAt.getTime()) || startsAt <= new Date()) return show("Choisissez une date future valide.", true);
+    if (endsAt && (!Number.isFinite(endsAt.getTime()) || endsAt <= startsAt)) return show("L’heure de fin doit être postérieure au début.", true);
+    const payload = {
+      created_by: currentUserId,
+      title: form.elements.title.value.trim(),
+      description: form.elements.description.value.trim(),
+      category: form.elements.category.value,
+      organizer_name: form.elements.organizer_name.value.trim(),
+      city: form.elements.city.value.trim(),
+      district: form.elements.district.value.trim() || null,
+      venue_name: form.elements.venue_name.value.trim(),
+      address: form.elements.address.value.trim(),
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt ? endsAt.toISOString() : null,
+      entry_fee_xof: Number(form.elements.entry_fee_xof.value),
+      status: "pending_review"
+    };
+    if (payload.title.length < 3 || payload.description.length < 10 || !Number.isSafeInteger(payload.entry_fee_xof) || payload.entry_fee_xof < 0) return show("Vérifiez le titre, la description et le tarif.", true);
+    button.disabled = true;
+    button.textContent = "Envoi…";
+    try {
+      const { data: organizer, error: organizerError } = await client.from("event_organizers")
+        .select("status").eq("user_id", currentUserId).maybeSingle();
+      if (organizerError) throw organizerError;
+      if (["approved", "trusted"].includes(organizer?.status)) payload.status = "published";
+      const { error } = await client.from("events").insert(payload);
+      if (error) throw error;
+      form.reset();
+      form.elements.city.value = "Abidjan";
+      show(payload.status === "published" ? "Événement publié." : "Événement envoyé. Il sera visible après modération.");
+      await loadEvents();
+    } catch (error) {
+      console.error("BaddieLink event submission failed:", error);
+      show(error.message || "L’envoi de l’événement a échoué.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Envoyer l’événement";
+    }
   }
 
   function openProfileEditor(profile) {
@@ -148,12 +380,14 @@
     });
     document.querySelector("#profile-editor-feedback").classList.add("hidden");
     modal.classList.remove("hidden");
+    loadProfilePhoto().catch(error => console.warn("Profile photo preview unavailable:", error));
   }
 
   function closeProfileEditor() {
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
+  document.querySelector("#upload-profile-photo")?.addEventListener("click", uploadProfilePhoto);
   document.querySelector("#close-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#cancel-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#profile-editor-modal")?.addEventListener("click", event => {
@@ -226,6 +460,11 @@
       save.textContent = "Enregistrer";
     }
   });
+
+  document.querySelector("#event-create-form")?.addEventListener("submit", submitEvent);
+  document.querySelector("#refresh-events")?.addEventListener("click", loadEvents);
+  document.querySelector("#event-city-filter")?.addEventListener("change", loadEvents);
+  document.querySelector("#event-category-filter")?.addEventListener("change", loadEvents);
 
   async function submitAuth(event) {
     event.preventDefault();
