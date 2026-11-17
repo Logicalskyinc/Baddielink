@@ -27,9 +27,19 @@
   }
   function showAgeGate() {
     const modal = $("#age-modal");
-    if (!sessionStorage.getItem("baddielink-age-declared")) modal.classList.remove("hidden");
+    if (!sessionStorage.getItem("baddielink-age-declared")) {
+      modal.classList.remove("hidden");
+      return;
+    }
+    if (location.hash === "#inscription") showAuth("signup");
+    else if (location.hash === "#connexion") showAuth("login");
   }
-  function closeAgeGate() { sessionStorage.setItem("baddielink-age-declared","1"); $("#age-modal").classList.add("hidden"); }
+  function closeAgeGate() {
+    sessionStorage.setItem("baddielink-age-declared","1");
+    $("#age-modal").classList.add("hidden");
+    if (location.hash === "#inscription") showAuth("signup");
+    else if (location.hash === "#connexion") showAuth("login");
+  }
   function showAuth(mode = "signup") {
     state.mode = mode;
     $("#welcome").classList.add("hidden");
@@ -127,7 +137,5 @@
   $("#age-decline").addEventListener("click", () => { $("#age-modal").classList.add("hidden"); $("#welcome").classList.add("hidden"); toast("L’accès est réservé aux personnes majeures."); });
   $("#mobile-settings").addEventListener("click", () => showView("settings"));
   $("#edit-profile").addEventListener("click", () => toast("L’édition du profil sera activée avec le backend."));
-  if (location.hash === "#inscription") showAuth("signup");
-  else if (location.hash === "#connexion") showAuth("login");
-  else showAgeGate();
+  showAgeGate();
 })();
