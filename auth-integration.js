@@ -367,31 +367,56 @@
     }
   }
 
+
   async function loadMyEvents() {
     const target = document.querySelector("#my-events-list");
     if (!target) return;
     try {
-      const { data, error } = await client.from("event_interests")
-        .select("created_at, events(id,title,starts_at,city,status)")
-        .eq("user_id", currentUserId).order("created_at", { ascending: false }).limit(30);
-      if (error) throw error;
+      const [{ data: interestRows, error: interestError }, { data: createdRows, error: createdError }, { data: organizer, error: organizerError }] = await Promise.all([
+        client.from("event_interests").select("created_at, events(id,title,starts_at,city,status)").eq("user_id", currentUserId).order("created_at", { ascending: false }).limit(30),
+        client.from("events").select("id,title,starts_at,city,status").eq("created_by", currentUserId).order("created_at", { ascending: false }).limit(30),
+        client.from("event_organizers").select("status").eq("user_id", currentUserId).maybeSingle()
+      ]);
+      if (interestError) throw interestError;
+      if (createdError) throw createdError;
+      if (organizerError) throw organizerError;
       target.replaceChildren();
-      const rows = (data || []).filter(row => row.events);
-      if (!rows.length) {
-        target.append(eventNode("p", "muted", "Vous ne suivez encore aucun événement."));
-        return;
-      }
-      rows.forEach(row => {
-        const event = row.events;
-        const item = eventNode("p", "my-event-item", event.title + " · " + formatEventDate(event.starts_at) + " · " + event.city);
-        target.append(item);
+      const interestedEvents = (interestRows || []).filter(row => row.events);
+      const submittedEvents = createdRows || [];
+      const heading1 = eventNode("h4", "my-events-heading", "Événements suivis");
+      target.append(heading1);
+      if (!interestedEvents.length) target.append(eventNode("p", "muted", "Vous ne suivez encore aucun événement."));
+      interestedEvents.forEach(row => target.append(eventNode("p", "my-event-item", row.events.title + " · " + formatEventDate(row.events.starts_at) + " · " + row.events.city)));
+      target.append(eventNode("h4", "my-events-heading", "Événements proposés"));
+      if (!submittedEvents.length) target.append(eventNode("p", "muted", "Vous n’avez proposé aucun événement."));
+      submittedEvents.forEach(item => {
+        const wrap = eventNode("div", "my-event-submission");
+        const statusLabels = { pending_review: "En attente de modération", published: "Publié", rejected: "Refusé", cancelled: "Annulé", completed: "Terminé" };
+        wrap.append(eventNode("p", "my-event-item", item.title + " · " + formatEventDate(item.starts_at) + " · " + (statusLabels[item.status] || item.status)));
+        if (item.status === "pending_review" || (item.status === "published" && ["approved","trusted"].includes(organizer?.status))) {
+          const action = eventNode("button", "button button-outline event-secondary-action", item.status === "pending_review" && ["approved","trusted"].includes(organizer?.status) ? "Publier maintenant" : "Retirer l’événement");
+          action.type = "button";
+          action.addEventListener("click", async () => {
+            action.disabled = true;
+            try {
+              const nextStatus = item.status === "pending_review" && ["approved","trusted"].includes(organizer?.status) ? "published" : "cancelled";
+              const { error } = await client.from("events").update({ status: nextStatus }).eq("id", item.id).eq("created_by", currentUserId);
+              if (error) throw error;
+              await Promise.all([loadMyEvents(), loadEvents()]);
+            } catch (error) {
+              window.BaddieLinkUI?.toast(error.message || "Impossible de modifier cet événement.", true);
+              action.disabled = false;
+            }
+          });
+          wrap.append(action);
+        }
+        target.append(wrap);
       });
     } catch (error) {
       console.error("BaddieLink personal events load failed:", error);
       target.textContent = "Impossible de charger vos événements.";
     }
   }
-
 
   async function uploadEventImage(file) {
     if (!file) return null;
