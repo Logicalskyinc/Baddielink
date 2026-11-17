@@ -1,55 +1,75 @@
 # BaddieLink Manual Test Plan
 
-**Target branch:** `feature/baddielink-social-foundation`  
-**Status:** Prepared; tests not yet executed  
-**Environment:** Existing Supabase project; no separate staging environment verified
+**Target branch:** `feat/profile-reputation-events`  
+**Status:** Prepared; browser checks are being completed against the Render preview  
+**Environment:** Preview and production use the same Supabase project. Preview is not a data-isolated staging environment.
+
+## Safety rules
+
+- Do not create disposable users or test records in the shared production database.
+- Do not upload test photos, submit events, approve/reject real members, change roles, or change moderation settings as part of routine smoke testing.
+- Read-only navigation and viewing existing records are safe. A real moderation action is only allowed when the project owner explicitly intends that action.
+- Never bypass a member's discoverability preference. Approval and discoverability are separate states.
+- Do not treat a successful static-site deploy as proof that authenticated workflows passed.
 
 ## Authentication
 
-- [ ] Signup rejects missing fields and passwords shorter than eight characters.
-- [ ] Signup rejects DOB under 18 and over 100.
-- [ ] Signup accepts an adult DOB and creates one Auth user, one profile and one private settings row.
-- [ ] Generated username is normalized, valid and unique.
-- [ ] Email confirmation flow returns to the configured application URL.
-- [ ] Confirmed user can sign in.
+- [ ] Existing account can sign in and session restores after refresh.
+- [ ] Logout clears the session.
 - [ ] Login does not require the signup-only terms checkbox.
-- [ ] Login with no adult declaration asks for DOB and writes it only through `confirm_adult_status`.
-- [ ] A user cannot set `age_verified_at` through the client.
-- [ ] Session survives refresh and logout clears the session.
+- [ ] Signup rejects missing fields, passwords shorter than eight characters, DOB under 18 and DOB over 100.
+- [ ] Adult declaration is stored only through `confirm_adult_status`; it is not described as official age or identity verification.
 - [ ] Duplicate signup and incorrect password produce safe user-facing errors.
 
-## Profile editor
+## Member profile and discovery
 
-- [ ] Owner can read their own profile.
-- [ ] Owner can update display name, username, city, bio, interests and discoverability.
-- [ ] Username validation rejects invalid format and duplicate username.
-- [ ] Bio over 500 characters is rejected.
-- [ ] City over 80 characters is rejected.
-- [ ] Discoverability can be enabled only after adult declaration.
+- [ ] Member can read and update their own display name, username, city, bio, interests and discoverability.
+- [ ] Invalid or duplicate usernames are rejected.
 - [ ] A pending or restricted profile remains excluded from discovery.
-- [ ] Client cannot update moderation status or protected account settings.
-- [ ] Profile summary refreshes after successful save.
-- [ ] Failed saves preserve the form contents and show an actionable error.
+- [ ] Only approved profiles with discoverability enabled appear in People Discovery.
+- [ ] Approved but non-discoverable profiles remain hidden from other members.
+- [ ] The member list in Admin Console shows moderation status separately from discoverability.
+- [ ] Existing member privacy choices are preserved by approval actions.
 
-## Privacy and authorization
+## Profile photos
 
-- [ ] A member cannot read another member's private settings.
-- [ ] Unapproved profiles and photos are not visible in discovery.
-- [ ] Blocked members cannot discover or message each other.
-- [ ] Profile-photo storage access is restricted to the owner or approved discovery rules.
-- [ ] Direct API requests cannot bypass RLS or column-level grants.
+- [ ] Photo upload validates JPEG, PNG or WebP and the 5 MiB limit.
+- [ ] Pending photos are visible only to their owner and authorized moderators.
+- [ ] Only approved photos appear publicly.
+- [ ] Signed photo previews load for authorized moderators.
+
+## Exhibitions and moderation
+
+- [ ] Published events appear in the member event list.
+- [ ] Event submissions and organizer applications follow their review status.
+- [ ] Event interests and reports are associated with the signed-in member.
+- [ ] Admin queues show the correct pending counts and records.
+- [ ] A moderation action updates the target record, refreshes the queue and writes an audit entry.
+- [ ] The owner account cannot moderate itself; the UI explains this restriction clearly.
+- [ ] The Members tab can filter all, pending, approved, restricted and removed accounts.
+- [ ] The Members tab shows visibility separately from moderation status.
+- [ ] The Admin Console can return to Member View without reopening itself.
+
+## Navigation and unfinished modules
+
+- [ ] The five-item mobile navigation remains Likes, Messages, Discover, Profile and Settings.
+- [ ] Discover shows implemented destinations only. Rooms, Communities, Moments and Audio placeholder panels remain hidden until functional.
+- [ ] Wallet and direct messaging are not presented as working transactions or live conversations.
+- [ ] No visible "Coming Soon" panel advertises a feature as usable before its implementation.
 
 ## UI and accessibility
 
-- [ ] Signup, login and profile editor work at mobile width.
+- [ ] Signup, login, profile editor, Discover and Admin Console work at mobile width.
 - [ ] Keyboard focus is visible and modal controls are reachable.
-- [ ] Modal closes using close/cancel controls and backdrop.
 - [ ] Form errors are announced through live regions.
-- [ ] No fake users, sample conversations or fake wallet balances appear after login.
 - [ ] Browser console has no uncaught errors.
 
-## Execution controls
+## Release gates
 
-- Do not create test users or write production data without explicit approval.
-- Prefer a dedicated staging project before broad end-to-end tests.
-- Do not deploy to the existing Render service during this test phase.
+- [ ] Latest feature-branch commit is deployed to the preview service.
+- [ ] Preview smoke tests pass without writing test data.
+- [ ] README and PR description accurately distinguish implemented features from roadmap work.
+- [ ] PR is reviewed and mergeable.
+- [ ] Merge to `main` is verified by commit SHA.
+- [ ] Production Render deploy is triggered only after the merge and verified against the merge SHA.
+- [ ] Production smoke tests pass.
