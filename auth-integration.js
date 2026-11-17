@@ -254,6 +254,40 @@
           if(item.moderation_status!=="removed") actions.append(adminButton("Retirer","admin_review_member",{p_user_id:item.id,p_decision:"remove"},true));
           card.append(actions); queue.append(card);
         });
+
+      } else if (tab === "roles") {
+        const [{ data: roleRows, error: roleError }, { data: members, error: memberError }] = await Promise.all([
+          client.rpc("admin_list_roles"),
+          client.from("profiles").select("id,username,display_name").order("display_name").limit(100)
+        ]);
+        if (roleError) throw roleError;
+        if (memberError) throw memberError;
+        const roleMap = new Map((roleRows || []).map(row => [row.user_id, row]));
+        const heading = adminNode("div","admin-empty");
+        heading.append(adminNode("h3","","Gestion des accès"),adminNode("p","","Seul le propriétaire peut accorder ou retirer le rôle Modérateur. Le rôle Propriétaire ne peut pas être modifié depuis cette interface."));
+        queue.append(heading);
+        (members || []).forEach(member => {
+          const role = roleMap.get(member.id);
+          const {card,head}=adminCard(member.display_name+" (@"+member.username+")",member.id.slice(0,8),role ? "Rôle : "+role.role : "Rôle : membre");
+          head.append(adminNode("span","admin-status-pill",role ? role.role : "Membre"));
+          if (member.id !== currentUserId && role?.role !== "owner") {
+            const action = adminNode("button","button button-outline admin-action",role ? "Retirer modérateur" : "Nommer modérateur");
+            action.type="button";
+            action.addEventListener("click",async()=>{
+              const reason=window.prompt("Motif du changement de rôle (facultatif) :") || "";
+              action.disabled=true;
+              try {
+                const {error}=await client.rpc("admin_set_moderator",{p_user_id:member.id,p_enabled:!role,p_reason:reason});
+                if(error) throw error;
+                await loadAdminTab("roles");
+              } catch(error) {
+                window.BaddieLinkUI?.toast(error.message || "Modification du rôle impossible.",true);
+              } finally { action.disabled=false; }
+            });
+            const actions=adminNode("div","admin-item-actions"); actions.append(action); card.append(actions);
+          }
+          queue.append(card);
+        });
       } else if (tab === "audit") {
         const { data, error } = await client.from("admin_audit_log").select("id,actor_id,action,target_type,target_id,reason,created_at").order("created_at",{ascending:false}).limit(100);
         if (error) throw error;
@@ -295,7 +329,7 @@
     const { data: adminAccess, error: adminAccessError } = await client.rpc("is_baddielink_admin");
     isBaddieLinkAdmin = !adminAccessError && adminAccess === true;
     const adminToggle = document.querySelector("#admin-mode-toggle");
-    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);
+    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);\n    const rolesTab = document.querySelector("#admin-roles-tab");\n    if (rolesTab) rolesTab.classList.toggle("hidden", !adminAccess || adminAccessError);
 \n    const displayName = profile.display_name || user.email || "Membre BaddieLink";
     document.querySelector("#sidebar-name").textContent = displayName;
     document.querySelector("#profile-name").textContent = displayName;
