@@ -112,15 +112,15 @@
   $$("[data-goto]").forEach(button => {
     button.addEventListener("click", () => showView(button.dataset.goto));
   });
-  $("[data-discover-section]").forEach(button => {
+  $$("[data-discover-section]").forEach(button => {
     button.addEventListener("click", () => {
       const section = button.dataset.discoverSection;
-      $(".discover-tab").forEach(tab => {
+      $$(".discover-tab").forEach(tab => {
         const active = tab === button;
         tab.classList.toggle("active", active);
         tab.setAttribute("aria-selected", String(active));
       });
-      $(".discover-panel").forEach(panel => {
+      $$(".discover-panel").forEach(panel => {
         const active = panel.id === "discover-panel-" + section;
         panel.classList.toggle("active", active);
         panel.hidden = !active;
