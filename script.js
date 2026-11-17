@@ -37,6 +37,7 @@
     $("#dob-field").classList.toggle("hidden", !signup);
     $("#date-of-birth").required = signup;
     $("#terms").required = signup;
+    $("#terms").closest(".checkline")?.classList.toggle("hidden", !signup);
     $("#auth-submit").textContent = signup ? "Créer mon compte" : "Se connecter";
     $("#switch-auth").firstChild.textContent = signup
       ? "Vous avez déjà un compte ? "
