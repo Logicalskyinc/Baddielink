@@ -150,7 +150,7 @@
           options: {
             data: {
               display_name: displayName,
-              username: displayName.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 18)
+              username: displayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 18)
             },
             emailRedirectTo: window.location.origin + window.location.pathname
           }
