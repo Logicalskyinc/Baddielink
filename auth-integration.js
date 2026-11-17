@@ -130,7 +130,7 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
-    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents()]);
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
     location.hash = "espace";
   }
 
@@ -248,7 +248,7 @@
     if (!list) return;
     list.replaceChildren(eventNode("p", "discover-note", "Chargement des événements…"));
     try {
-      let query = client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status,event_image_path")
+      let query = client.from("events").select("id,created_by,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status,event_image_path")
         .eq("status", "published").gte("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(50);
       const city = document.querySelector("#event-city-filter")?.value;
       const category = document.querySelector("#event-category-filter")?.value;
@@ -297,7 +297,62 @@
             window.BaddieLinkUI?.toast(error.message || "Impossible de modifier votre intérêt.", true);
           } finally { action.disabled = false; }
         });
-        card.append(meta, title, desc, date, venue, organizer, fee, action);
+
+        const actions = eventNode("div", "event-card-actions");
+        const share = eventNode("button", "button button-outline event-secondary-action", "Partager");
+        share.type = "button";
+        share.addEventListener("click", async () => {
+          const shareData = { title: event.title, text: event.title + " · " + event.venue_name + " · " + formatEventDate(event.starts_at), url: location.origin + location.pathname + "#event-" + event.id };
+          try {
+            if (navigator.share) await navigator.share(shareData);
+            else if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(shareData.url);
+              window.BaddieLinkUI?.toast("Lien de l’événement copié.");
+            } else window.BaddieLinkUI?.toast("Le partage n’est pas disponible sur cet appareil.", true);
+          } catch (error) {
+            if (error.name !== "AbortError") window.BaddieLinkUI?.toast("Impossible de partager cet événement.", true);
+          }
+        });
+        actions.append(share);
+        if (event.created_by !== currentUserId) {
+          const report = eventNode("button", "button button-outline event-secondary-action", "Signaler");
+          report.type = "button";
+          report.addEventListener("click", () => {
+            if (card.querySelector(".event-report-form")) return;
+            const reportForm = eventNode("form", "event-report-form");
+            const reason = eventNode("select", "");
+            reason.name = "reason";
+            [["spam","Spam"],["misleading","Informations trompeuses"],["unsafe","Événement dangereux"],["harassment","Harcèlement"],["other","Autre"]].forEach(([value,label]) => {
+              const option = eventNode("option", "", label); option.value = value; reason.append(option);
+            });
+            const details = eventNode("textarea", "");
+            details.name = "details"; details.maxLength = 1000; details.rows = 2; details.placeholder = "Détails facultatifs";
+            const send = eventNode("button", "button button-outline event-secondary-action", "Envoyer le signalement"); send.type = "submit";
+            const cancel = eventNode("button", "button button-outline event-secondary-action", "Annuler"); cancel.type = "button";
+            cancel.addEventListener("click", () => reportForm.remove());
+            const feedback = eventNode("p", "form-feedback");
+            reportForm.append(reason, details, send, cancel, feedback);
+            reportForm.addEventListener("submit", async submit => {
+              submit.preventDefault(); send.disabled = true;
+              try {
+                const { error } = await client.from("event_reports").insert({
+                  event_id: event.id, reporter_id: currentUserId,
+                  reason: reason.value, details: details.value.trim() || null
+                });
+                if (error) throw error;
+                feedback.textContent = "Signalement transmis à l’équipe de modération.";
+                report.disabled = true; report.textContent = "Signalé";
+                reportForm.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
+              } catch (error) {
+                feedback.textContent = error.code === "23505" ? "Vous avez déjà signalé cet événement." : (error.message || "Le signalement a échoué.");
+                send.disabled = false;
+              }
+            });
+            card.append(reportForm);
+          });
+          actions.append(report);
+        }
+        card.append(meta, title, desc, date, venue, organizer, fee, action, actions);
         list.append(card);
       });
     } catch (error) {
@@ -353,6 +408,71 @@
       return null;
     }
     return data?.signedUrl || null;
+  }
+
+
+  async function loadOrganizerApplication() {
+    const form = document.querySelector("#organizer-application-form");
+    if (!form) return;
+    const feedback = document.querySelector("#organizer-application-feedback");
+    try {
+      const [{ data: application, error }, { data: organizer, error: organizerError }] = await Promise.all([
+        client.from("organizer_applications").select("organization_name,status").eq("user_id", currentUserId).maybeSingle(),
+        client.from("event_organizers").select("organization_name,status").eq("user_id", currentUserId).maybeSingle()
+      ]);
+      if (error) throw error;
+      if (organizerError) throw organizerError;
+      if (organizer && ["approved","trusted"].includes(organizer.status)) {
+        feedback.textContent = "Votre compte organisateur est " + (organizer.status === "trusted" ? "de confiance." : "vérifié.") + " Vous pouvez publier directement vos événements.";
+        feedback.classList.remove("hidden");
+        form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+      } else if (application) {
+        feedback.textContent = application.status === "pending"
+          ? "Demande reçue pour " + application.organization_name + ". Elle est en attente de vérification."
+          : application.status === "approved" ? "Votre demande est approuvée. Actualisez la page pour voir vos droits organisateur."
+          : "Votre demande précédente a été refusée. Contactez l’équipe d’assistance si vous souhaitez demander un nouvel examen.";
+        feedback.classList.remove("hidden");
+        form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+      }
+    } catch (error) {
+      console.warn("Organizer application status unavailable:", error);
+    }
+  }
+
+  async function submitOrganizerApplication(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.querySelector("#organizer-application-submit");
+    const feedback = document.querySelector("#organizer-application-feedback");
+    const website = form.elements.website_url.value.trim();
+    if (website) {
+      try {
+        const parsed = new URL(website);
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+      } catch {
+        feedback.textContent = "Entrez une adresse web valide commençant par https://.";
+        feedback.classList.remove("hidden");
+        return;
+      }
+    }
+    button.disabled = true;
+    try {
+      const { error } = await client.from("organizer_applications").insert({
+        user_id: currentUserId,
+        organization_name: form.elements.organization_name.value.trim(),
+        organization_type: form.elements.organization_type.value,
+        website_url: website || null,
+        description: form.elements.description.value.trim()
+      });
+      if (error) throw error;
+      feedback.textContent = "Demande envoyée. Elle sera examinée par l’équipe BaddieLink.";
+      feedback.classList.remove("hidden");
+      form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+    } catch (error) {
+      feedback.textContent = error.code === "23505" ? "Une demande existe déjà pour ce compte." : (error.message || "Impossible d’envoyer la demande.");
+      feedback.classList.remove("hidden");
+      button.disabled = false;
+    }
   }
 
   async function submitEvent(event) {
@@ -536,6 +656,7 @@
   });
 
   document.querySelector("#event-create-form")?.addEventListener("submit", submitEvent);
+  document.querySelector("#organizer-application-form")?.addEventListener("submit", submitOrganizerApplication);
   document.querySelector("#refresh-events")?.addEventListener("click", loadEvents);
   document.querySelector("#event-city-filter")?.addEventListener("change", loadEvents);
   document.querySelector("#event-category-filter")?.addEventListener("change", loadEvents);
