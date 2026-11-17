@@ -169,7 +169,9 @@
           ["Photos à modérer", "profile_photos", "moderation_status", "pending"],
           ["Signalements d’événements", "event_reports", "status", "pending"],
           ["Signalements de membres", "reports", "status", "open"],
-          ["Profils en attente", "profiles", "moderation_status", "pending"]
+          ["Profils en attente", "profiles", "moderation_status", "pending"],
+          ["Profils approuvés", "profiles", "moderation_status", "approved"],
+          ["Profils restreints", "profiles", "moderation_status", "restricted"]
         ];
         const counts = await Promise.all(tables.map(async item => {
           const { count, error } = await client.from(item[1]).select("id", { count: "exact", head: true }).eq(item[2], item[3]);
@@ -243,17 +245,52 @@
           card.append(actions); queue.append(card);
         });
       } else if (tab === "members") {
-        const { data, error } = await client.from("profiles").select("id,username,display_name,city,moderation_status,created_at").order("created_at",{ascending:false}).limit(50);
+        const { data, error } = await client.from("profiles")
+          .select("id,username,display_name,city,moderation_status,created_at")
+          .order("created_at", { ascending: false }).limit(100);
         if (error) throw error;
-        (data || []).forEach(item => {
+        const memberRows = data || [];
+        const statusCounts = memberRows.reduce((counts, item) => {
+          counts[item.moderation_status] = (counts[item.moderation_status] || 0) + 1;
+          return counts;
+        }, {});
+        const filters = adminNode("div", "admin-item-actions");
+        [
+          ["all", "Tous (" + memberRows.length + ")"],
+          ["pending", "En attente (" + (statusCounts.pending || 0) + ")"],
+          ["approved", "Approuvés (" + (statusCounts.approved || 0) + ")"],
+          ["restricted", "Restreints (" + (statusCounts.restricted || 0) + ")"],
+          ["removed", "Retirés (" + (statusCounts.removed || 0) + ")"]
+        ].forEach(([value, label]) => {
+          const filter = adminNode("button", "button button-outline admin-action", label);
+          filter.type = "button";
+          filter.classList.toggle("active", (window.__baddielinkMemberFilter || "all") === value);
+          filter.addEventListener("click", () => {
+            window.__baddielinkMemberFilter = value;
+            loadAdminTab("members");
+          });
+          filters.append(filter);
+        });
+        queue.append(filters);
+        const selectedFilter = window.__baddielinkMemberFilter || "all";
+        const visibleMembers = selectedFilter === "all"
+          ? memberRows
+          : memberRows.filter(item => item.moderation_status === selectedFilter);
+        visibleMembers.forEach(item => {
           const {card,head}=adminCard(item.display_name+" (@"+item.username+")",item.city+" · "+item.id.slice(0,8), "Statut : "+item.moderation_status+" · Inscription : "+new Date(item.created_at).toLocaleDateString("fr-FR"));
           head.append(adminNode("span","admin-status-pill",item.moderation_status));
-          const actions=adminNode("div","admin-item-actions");
-          if(item.moderation_status!=="approved") actions.append(adminButton("Approuver","admin_review_member",{p_user_id:item.id,p_decision:"approve"},true));
-          if(item.moderation_status!=="restricted") actions.append(adminButton("Restreindre","admin_review_member",{p_user_id:item.id,p_decision:"restrict"},true));
-          if(item.moderation_status!=="removed") actions.append(adminButton("Retirer","admin_review_member",{p_user_id:item.id,p_decision:"remove"},true));
-          card.append(actions); queue.append(card);
+          if (item.id === currentUserId) {
+            card.append(adminNode("p", "admin-item-detail", "Votre compte administrateur ne peut pas être approuvé, restreint ou retiré par vous-même."));
+          } else {
+            const actions=adminNode("div","admin-item-actions");
+            if(item.moderation_status!=="approved") actions.append(adminButton("Approuver","admin_review_member",{p_user_id:item.id,p_decision:"approve"},true));
+            if(item.moderation_status!=="restricted") actions.append(adminButton("Restreindre","admin_review_member",{p_user_id:item.id,p_decision:"restrict"},true));
+            if(item.moderation_status!=="removed") actions.append(adminButton("Retirer","admin_review_member",{p_user_id:item.id,p_decision:"remove"},true));
+            card.append(actions);
+          }
+          queue.append(card);
         });
+        if (!visibleMembers.length) queue.append(adminNode("div", "admin-empty", "Aucun membre dans ce statut parmi les 100 comptes les plus récents."));
 
       } else if (tab === "roles") {
         const [{ data: roleRows, error: roleError }, { data: members, error: memberError }] = await Promise.all([
