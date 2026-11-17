@@ -76,6 +76,291 @@
     return true;
   }
 
+
+  let isBaddieLinkAdmin = false;
+  let activeAdminTab = "overview";
+
+  function adminNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined && value !== null) el.textContent = String(value);
+    return el;
+  }
+
+  function adminButton(label, action, id, reasonPrompt = false) {
+    const button = adminNode("button", "button button-outline admin-action", label);
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      if (!isBaddieLinkAdmin) return;
+      const reason = reasonPrompt ? (window.prompt("Motif de cette décision (facultatif) :") || "") : "";
+      button.disabled = true;
+      try {
+        const { error } = await client.rpc(action, { ...id, p_reason: reason });
+        if (error) throw error;
+        window.BaddieLinkUI?.toast("Action enregistrée.");
+        await loadAdminTab(activeAdminTab);
+      } catch (error) {
+        console.error("BaddieLink admin action failed:", error);
+        const rawMessage = String(error?.message || "");
+        const userMessage = rawMessage.includes("Cannot moderate your own admin account")
+          ? "Votre compte propriétaire ne peut pas être modéré depuis cette console."
+          : (rawMessage || "Action administrative impossible.");
+        window.BaddieLinkUI?.toast(userMessage, true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
+  function adminCard(title, subtitle, detail) {
+    const card = adminNode("article", "admin-item");
+    const head = adminNode("div", "admin-item-head");
+    const copy = adminNode("div", "admin-item-copy");
+    copy.append(adminNode("h3", "", title), adminNode("p", "", subtitle));
+    head.append(copy);
+    card.append(head);
+    if (detail) card.append(adminNode("p", "admin-item-detail", detail));
+    return { card, head };
+  }
+
+  function setAdminStatus(text, isError = false) {
+    const status = document.querySelector("#admin-console-status");
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle("error", isError);
+  }
+
+  function showAdminConsole() {
+    if (!isBaddieLinkAdmin) return;
+    window.__baddielinkMemberFilter = "all";
+    document.querySelectorAll(".view").forEach(el => el.classList.remove("active"));
+    document.querySelector("#admin-console")?.classList.remove("hidden");
+    document.querySelector("#mobile-bottom-nav")?.classList.add("hidden");
+    document.querySelector(".mobile-bottom-nav")?.classList.add("hidden");
+    document.querySelector("#view-kicker").textContent = "ESPACE PRIVÉ";
+    document.querySelector("#view-title").textContent = "Administration";
+    document.querySelector("#view-description").textContent = "Console de gestion et de modération BaddieLink.";
+    document.querySelector("#admin-mode-toggle").textContent = "Membre";
+    document.querySelector("#admin-mode-toggle").title = "Revenir à l’espace membre";
+    location.hash = "admin";
+    loadAdminTab(activeAdminTab);
+  }
+
+  function showMemberWorkspace() {
+    document.querySelector("#admin-console")?.classList.add("hidden");
+    document.querySelector(".mobile-bottom-nav")?.classList.remove("hidden");
+    document.querySelector("#admin-mode-toggle").textContent = "⚙";
+    document.querySelector("#admin-mode-toggle").title = "Ouvrir la console d’administration";
+    window.BaddieLinkUI?.showView("discover");
+    location.hash = "espace";
+  }
+
+  async function loadAdminTab(tab) {
+    if (!isBaddieLinkAdmin) return;
+    activeAdminTab = tab;
+    document.querySelectorAll("[data-admin-tab]").forEach(button => button.classList.toggle("active", button.dataset.adminTab === tab));
+    const queue = document.querySelector("#admin-queue");
+    const metrics = document.querySelector("#admin-metrics");
+    if (!queue || !metrics) return;
+    queue.replaceChildren();
+    metrics.replaceChildren();
+    setAdminStatus("Chargement…");
+    try {
+      if (tab === "overview") {
+        const tables = [
+          ["Événements à examiner", "events", "status", "pending_review"],
+          ["Demandes organisateur", "organizer_applications", "status", "pending"],
+          ["Photos à modérer", "profile_photos", "moderation_status", "pending"],
+          ["Signalements d’événements", "event_reports", "status", "pending"],
+          ["Signalements de membres", "reports", "status", "open"],
+          ["Profils en attente", "profiles", "moderation_status", "pending"],
+          ["Profils approuvés", "profiles", "moderation_status", "approved"],
+          ["Profils restreints", "profiles", "moderation_status", "restricted"]
+        ];
+        const counts = await Promise.all(tables.map(async item => {
+          const { count, error } = await client.from(item[1]).select("id", { count: "exact", head: true }).eq(item[2], item[3]);
+          if (error) throw error;
+          return { label: item[0], count: count || 0 };
+        }));
+        counts.forEach(item => {
+          const metric = adminNode("div", "admin-metric");
+          metric.append(adminNode("strong", "", item.count), adminNode("span", "", item.label));
+          metrics.append(metric);
+        });
+        const intro = adminNode("div", "admin-empty");
+        intro.append(adminNode("h3", "", "Centre de contrôle"), adminNode("p", "", "Sélectionnez une file pour examiner les éléments. Chaque décision de modération est enregistrée dans le journal d’audit."));
+        queue.append(intro);
+        setAdminStatus("Données administratives chargées.");
+        return;
+      }
+
+      if (tab === "events") {
+        const { data, error } = await client.from("events").select("id,title,description,category,organizer_name,city,district,venue_name,address,starts_at,entry_fee_xof,created_by,created_at").eq("status","pending_review").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.title, item.organizer_name+" · "+item.category, item.city+(item.district ? " · "+item.district : "")+" · "+item.venue_name+" · "+new Date(item.starts_at).toLocaleString("fr-FR"));
+          head.append(adminNode("span","admin-status-pill","À examiner"));
+          card.append(adminNode("p","admin-item-detail",item.description));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Publier","admin_review_event",{p_event_id:item.id,p_decision:"publish"},true),adminButton("Rejeter","admin_review_event",{p_event_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "organizers") {
+        const { data, error } = await client.from("organizer_applications").select("id,user_id,organization_name,organization_type,website_url,description,created_at").eq("status","pending").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.organization_name,item.organization_type+" · Compte "+item.user_id.slice(0,8),item.description);
+          if(item.website_url) card.append(adminNode("p","admin-item-detail",item.website_url));
+          head.append(adminNode("span","admin-status-pill","En attente"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Approuver","admin_review_organizer_application",{p_application_id:item.id,p_decision:"approve"},true),adminButton("Rejeter","admin_review_organizer_application",{p_application_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "photos") {
+        const { data, error } = await client.from("profile_photos").select("id,user_id,object_path,created_at").eq("moderation_status","pending").order("created_at",{ascending:true}).limit(40);
+        if (error) throw error;
+        for (const item of (data || [])) {
+          const {card,head}=adminCard("Photo de profil","Compte "+item.user_id.slice(0,8),new Date(item.created_at).toLocaleString("fr-FR"));
+          const {data:signed,error:signedError}=await client.storage.from("baddielink-profile-photos").createSignedUrl(item.object_path,600);
+          if(!signedError && signed?.signedUrl){const img=adminNode("img","admin-photo-preview");img.src=signed.signedUrl;img.alt="Photo soumise à modération";card.append(img);}
+          head.append(adminNode("span","admin-status-pill","En attente"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Approuver","admin_review_profile_photo",{p_photo_id:item.id,p_decision:"approve"},true),adminButton("Rejeter","admin_review_profile_photo",{p_photo_id:item.id,p_decision:"reject"},true));
+          card.append(actions); queue.append(card);
+        }
+      } else if (tab === "event-reports") {
+        const { data, error } = await client.from("event_reports").select("id,event_id,reporter_id,reason,details,created_at,events(title)").eq("status","pending").order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.events?.title || "Événement signalé",item.reason+" · Compte "+item.reporter_id.slice(0,8),item.details || "Aucun détail fourni.");
+          head.append(adminNode("span","admin-status-pill","Nouveau"));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("Marquer examiné","admin_review_event_report",{p_report_id:item.id,p_decision:"reviewed"},true),adminButton("Classer sans suite","admin_review_event_report",{p_report_id:item.id,p_decision:"dismissed"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "member-reports") {
+        const { data, error } = await client.from("reports").select("id,reporter_id,reported_user_id,message_id,reason,details,status,created_at").in("status",["open","reviewing"]).order("created_at",{ascending:true}).limit(50);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard("Signalement de membre",item.reason+" · "+(item.reported_user_id ? "Compte "+item.reported_user_id.slice(0,8) : "Message "+String(item.message_id).slice(0,8)),item.details || "Aucun détail fourni.");
+          head.append(adminNode("span","admin-status-pill",item.status));
+          const actions=adminNode("div","admin-item-actions");
+          actions.append(adminButton("En cours","admin_review_member_report",{p_report_id:item.id,p_decision:"reviewing"},true),adminButton("Action prise","admin_review_member_report",{p_report_id:item.id,p_decision:"actioned"},true),adminButton("Clôturer","admin_review_member_report",{p_report_id:item.id,p_decision:"closed"},true));
+          card.append(actions); queue.append(card);
+        });
+      } else if (tab === "members") {
+        const { data, error } = await client.from("profiles")
+          .select("id,username,display_name,city,moderation_status,is_discoverable,created_at")
+          .order("created_at", { ascending: false }).limit(100);
+        if (error) throw error;
+        const memberRows = data || [];
+        const statusCounts = memberRows.reduce((counts, item) => {
+          counts[item.moderation_status] = (counts[item.moderation_status] || 0) + 1;
+          return counts;
+        }, {});
+        const filters = adminNode("div", "admin-item-actions");
+        [
+          ["all", "Tous (" + memberRows.length + ")"],
+          ["pending", "En attente (" + (statusCounts.pending || 0) + ")"],
+          ["approved", "Approuvés (" + (statusCounts.approved || 0) + ")"],
+          ["restricted", "Restreints (" + (statusCounts.restricted || 0) + ")"],
+          ["removed", "Retirés (" + (statusCounts.removed || 0) + ")"]
+        ].forEach(([value, label]) => {
+          const filter = adminNode("button", "button button-outline admin-action", label);
+          filter.type = "button";
+          filter.classList.toggle("active", (window.__baddielinkMemberFilter || "all") === value);
+          filter.addEventListener("click", () => {
+            window.__baddielinkMemberFilter = value;
+            loadAdminTab("members");
+          });
+          filters.append(filter);
+        });
+        queue.append(filters);
+        const visibilityNote = adminNode("div", "admin-empty");
+        visibilityNote.append(
+          adminNode("h3", "", "Modération et visibilité"),
+          adminNode("p", "", "L’approbation confirme le statut du compte. L’apparition dans People Discovery dépend aussi du choix de visibilité du membre. L’approbation ne modifie jamais ce réglage.")
+        );
+        queue.append(visibilityNote);
+        const selectedFilter = window.__baddielinkMemberFilter || "all";
+        const visibleMembers = selectedFilter === "all"
+          ? memberRows
+          : memberRows.filter(item => item.moderation_status === selectedFilter);
+        visibleMembers.forEach(item => {
+          const visibility = item.is_discoverable ? "Visible dans People Discovery" : "Masqué dans People Discovery";
+          const {card,head}=adminCard(item.display_name+" (@"+item.username+")",item.city+" · "+item.id.slice(0,8), "Modération : "+item.moderation_status+" · "+visibility+" · Inscription : "+new Date(item.created_at).toLocaleDateString("fr-FR"));
+          head.append(adminNode("span","admin-status-pill",item.moderation_status));
+          if (item.id === currentUserId) {
+            card.append(adminNode("p", "admin-item-detail", "Votre compte administrateur ne peut pas être approuvé, restreint ou retiré par vous-même."));
+          } else {
+            const actions=adminNode("div","admin-item-actions");
+            if(item.moderation_status!=="approved") actions.append(adminButton("Approuver","admin_review_member",{p_user_id:item.id,p_decision:"approve"},true));
+            if(item.moderation_status!=="restricted") actions.append(adminButton("Restreindre","admin_review_member",{p_user_id:item.id,p_decision:"restrict"},true));
+            if(item.moderation_status!=="removed") actions.append(adminButton("Retirer","admin_review_member",{p_user_id:item.id,p_decision:"remove"},true));
+            card.append(actions);
+          }
+          queue.append(card);
+        });
+        if (!visibleMembers.length) queue.append(adminNode("div", "admin-empty", "Aucun membre dans ce statut parmi les 100 comptes les plus récents."));
+
+      } else if (tab === "roles") {
+        const [{ data: roleRows, error: roleError }, { data: members, error: memberError }] = await Promise.all([
+          client.rpc("admin_list_roles"),
+          client.from("profiles").select("id,username,display_name").order("display_name").limit(100)
+        ]);
+        if (roleError) throw roleError;
+        if (memberError) throw memberError;
+        const roleMap = new Map((roleRows || []).map(row => [row.user_id, row]));
+        const heading = adminNode("div","admin-empty");
+        heading.append(adminNode("h3","","Gestion des accès"),adminNode("p","","Seul le propriétaire peut accorder ou retirer le rôle Modérateur. Le rôle Propriétaire ne peut pas être modifié depuis cette interface."));
+        queue.append(heading);
+        (members || []).forEach(member => {
+          const role = roleMap.get(member.id);
+          const {card,head}=adminCard(member.display_name+" (@"+member.username+")",member.id.slice(0,8),role ? "Rôle : "+role.role : "Rôle : membre");
+          head.append(adminNode("span","admin-status-pill",role ? role.role : "Membre"));
+          if (member.id !== currentUserId && role?.role !== "owner") {
+            const action = adminNode("button","button button-outline admin-action",role ? "Retirer modérateur" : "Nommer modérateur");
+            action.type="button";
+            action.addEventListener("click",async()=>{
+              const reason=window.prompt("Motif du changement de rôle (facultatif) :") || "";
+              action.disabled=true;
+              try {
+                const {error}=await client.rpc("admin_set_moderator",{p_user_id:member.id,p_enabled:!role,p_reason:reason});
+                if(error) throw error;
+                await loadAdminTab("roles");
+              } catch(error) {
+                window.BaddieLinkUI?.toast(error.message || "Modification du rôle impossible.",true);
+              } finally { action.disabled=false; }
+            });
+            const actions=adminNode("div","admin-item-actions"); actions.append(action); card.append(actions);
+          }
+          queue.append(card);
+        });
+      } else if (tab === "audit") {
+        const { data, error } = await client.from("admin_audit_log").select("id,actor_id,action,target_type,target_id,reason,created_at").order("created_at",{ascending:false}).limit(100);
+        if (error) throw error;
+        (data || []).forEach(item => {
+          const {card,head}=adminCard(item.action.replaceAll("_"," "),item.target_type+" · "+item.target_id.slice(0,8),new Date(item.created_at).toLocaleString("fr-FR")+(item.reason ? " · "+item.reason : ""));
+          head.append(adminNode("span","admin-status-pill","Journalisé")); queue.append(card);
+        });
+      }
+      if (!queue.children.length) queue.append(adminNode("div","admin-empty","Aucun élément dans cette file."));
+      setAdminStatus("File actualisée · "+queue.children.length+" élément(s).");
+    } catch (error) {
+      console.error("BaddieLink admin queue failed:", error);
+      setAdminStatus(error.message || "Impossible de charger cette file.", true);
+      queue.replaceChildren(adminNode("div","admin-empty","Les données n’ont pas pu être chargées. Vérifiez vos autorisations puis réessayez."));
+    }
+  }
+
+  document.querySelector("#admin-mode-toggle")?.addEventListener("click", () => {
+    if (document.querySelector("#admin-console")?.classList.contains("hidden")) showAdminConsole();
+    else showMemberWorkspace();
+  });
+  document.querySelector("#admin-back-member")?.addEventListener("click", showMemberWorkspace);
+  document.querySelectorAll("[data-admin-tab]").forEach(button => button.addEventListener("click", () => loadAdminTab(button.dataset.adminTab)));
+
   async function enterAuthenticatedApp(user) {
     currentUserId = user.id;
     const { data: profile, error } = await client
@@ -88,6 +373,15 @@
     document.querySelector("#auth-panel").classList.add("hidden");
     document.querySelector("#welcome").classList.add("hidden");
     document.querySelector("#app-shell").classList.remove("hidden");
+
+
+    const { data: adminAccess, error: adminAccessError } = await client.rpc("is_baddielink_admin");
+    isBaddieLinkAdmin = !adminAccessError && adminAccess === true;
+    const adminToggle = document.querySelector("#admin-mode-toggle");
+    if (adminToggle) adminToggle.classList.toggle("hidden", !isBaddieLinkAdmin);
+    const { data: ownerAccess } = isBaddieLinkAdmin ? await client.rpc("is_baddielink_owner") : { data: false };
+    const rolesTab = document.querySelector("#admin-roles-tab");
+    if (rolesTab) rolesTab.classList.toggle("hidden", ownerAccess !== true);
 
     const displayName = profile.display_name || user.email || "Membre BaddieLink";
     document.querySelector("#sidebar-name").textContent = displayName;
@@ -111,14 +405,11 @@
     const editButton = document.querySelector("#edit-profile");
     if (editButton) editButton.onclick = () => openProfileEditor(profile);
 
-    // Never expose prototype profiles, fake likes, or sample conversations to real members.
-    document.querySelector("#profile-grid").innerHTML = "";
-    document.querySelector("#likes-grid").innerHTML = "";
-    document.querySelector("#view-discover .filter-row")?.classList.add("hidden");
+    // Discover only real profiles returned by the database and protected by RLS.
+    document.querySelector("#profile-grid")?.replaceChildren();
+    document.querySelector("#likes-grid")?.replaceChildren();
     const discoverStatus = document.querySelector("#discover-member-status");
-    if (discoverStatus) {
-      discoverStatus.textContent = "Votre compte est connecté. La découverte des membres sera activée après validation des règles de visibilité et de sécurité.";
-    }
+    if (discoverStatus) discoverStatus.textContent = "Chargement des membres approuvés…";
     document.querySelector("#view-messages").innerHTML =
       '<div class="empty-state"><span>✉</span><h3>Messagerie en préparation</h3><p>La messagerie réelle sera activée après les tests d’accès et de confidentialité.</p></div>';
     document.querySelector("#view-likes").innerHTML =
@@ -130,7 +421,693 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
-    location.hash = "espace";
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadPeople(true), loadLikes(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
+    if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
+    else location.hash = "espace";
+    const sharedEventId = new URLSearchParams(location.search).get("event");
+    if (sharedEventId) {
+      document.querySelector('[data-discover-section="exhibitions"]')?.click();
+      requestAnimationFrame(() => document.querySelector("#event-" + CSS.escape(sharedEventId))?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    }
+  }
+
+  function setProfilePhoto(url) {
+    document.querySelectorAll(".avatar-user").forEach(el => {
+      el.textContent = "";
+      el.style.backgroundImage = url ? "url('" + url.replace(/'/g, "%27") + "')" : "";
+      el.classList.toggle("has-photo", Boolean(url));
+    });
+    const preview = document.querySelector("#profile-photo-preview");
+    if (preview && url) preview.style.backgroundImage = "url('" + url.replace(/'/g, "%27") + "')";
+  }
+
+  async function loadProfilePhoto() {
+    const { data, error } = await client.from("profile_photos")
+      .select("object_path, moderation_status")
+      .eq("user_id", currentUserId)
+      .eq("moderation_status", "approved")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    const photo = data?.[0];
+    if (!photo) {
+      document.querySelectorAll(".avatar-user").forEach(el => { el.style.backgroundImage = ""; el.classList.remove("has-photo"); });
+      return;
+    }
+    const { data: signed, error: signedError } = await client.storage
+      .from("baddielink-profile-photos").createSignedUrl(photo.object_path, 3600);
+    if (signedError) throw signedError;
+    if (signed?.signedUrl) setProfilePhoto(signed.signedUrl);
+  }
+
+  async function loadReputation() {
+    const { data, error } = await client.from("reputation_profiles")
+      .select("score, rank").eq("user_id", currentUserId).maybeSingle();
+    if (error) throw error;
+    const labels = { beginner: "Débutant", novice: "Novice", intermediate: "Intermédiaire", advanced: "Avancé", expert: "Expert", legend: "Légende" };
+    const target = document.querySelector("#profile-reputation");
+    if (target) target.textContent = "☆☆☆☆☆ · " + (labels[data?.rank] || "Débutant") + " · " + (data?.score ?? 0) + " points";
+  }
+
+
+  function previewImageInput(input, preview, note, messageText) {
+    const file = input?.files?.[0];
+    if (!file || !preview || !note) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      note.textContent = "Choisissez une image JPEG, PNG ou WebP de 5 Mo maximum.";
+      note.style.color = "#ff9aa8";
+      note.classList.remove("hidden");
+      input.value = "";
+      return;
+    }
+    preview.src = URL.createObjectURL(file);
+    preview.classList.remove("hidden");
+    note.textContent = messageText;
+    note.style.color = "#a7e0bd";
+    note.classList.remove("hidden");
+  }
+
+  async function uploadProfilePhoto() {
+    const input = document.querySelector("#profile-photo-file");
+    const button = document.querySelector("#upload-profile-photo");
+    const note = document.querySelector("#profile-photo-feedback");
+    const file = input?.files?.[0];
+    const show = (text, isError = false) => {
+      note.textContent = text;
+      note.style.color = isError ? "#ff9aa8" : "#a7e0bd";
+      note.classList.remove("hidden");
+    };
+    if (!file) return show("Choisissez d’abord une image.", true);
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return show("Format non accepté. Utilisez JPEG, PNG ou WebP.", true);
+    if (file.size > 5 * 1024 * 1024) return show("La photo dépasse la limite de 5 Mo.", true);
+    const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" })[file.type];
+    const path = currentUserId + "/" + crypto.randomUUID() + "." + extension;
+    button.disabled = true;
+    button.textContent = "Envoi…";
+    try {
+      const { error: uploadError } = await client.storage.from("baddielink-profile-photos")
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { error: rowError } = await client.from("profile_photos").insert({
+        user_id: currentUserId, object_path: path, moderation_status: "pending"
+      });
+      if (rowError) {
+        await client.storage.from("baddielink-profile-photos").remove([path]);
+        throw rowError;
+      }
+      const preview = document.querySelector("#profile-photo-preview");
+      const localUrl = URL.createObjectURL(file);
+      if (preview) preview.style.backgroundImage = "url('" + localUrl + "')";
+      show("Photo envoyée. Elle restera privée pour les autres membres jusqu’à son approbation.");
+      input.value = "";
+    } catch (error) {
+      console.error("BaddieLink profile photo upload failed:", error);
+      show(error.message || "L’envoi de la photo a échoué.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Envoyer la photo";
+    }
+  }
+
+
+  const peoplePageSize = 24;
+  let peopleRows = [];
+  let peopleOffset = 0;
+  let peopleHasMore = true;
+  let peopleLoading = false;
+  let peopleLikeIds = new Set();
+  let peopleMatchIds = new Set();
+  let peoplePhotos = new Map();
+  let peopleReputation = new Map();
+
+  function peopleNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined && value !== null) el.textContent = String(value);
+    return el;
+  }
+
+  function interestLabel(value) {
+    return ({ friendship: "Amitié", dating: "Rencontres", networking: "Réseautage", discussion: "Discussions", events: "Événements" })[value] || value;
+  }
+
+  function renderPeople() {
+    const grid = document.querySelector("#profile-grid");
+    const status = document.querySelector("#discover-member-status");
+    const search = (document.querySelector("#people-search")?.value || "").trim().toLocaleLowerCase("fr");
+    if (!grid) return;
+    grid.replaceChildren();
+    const visible = peopleRows.filter(person => {
+      if (!search) return true;
+      return [person.display_name, person.username, person.city, person.bio]
+        .some(value => String(value || "").toLocaleLowerCase("fr").includes(search));
+    });
+    visible.forEach(person => {
+      const card = peopleNode("article", "people-card");
+      const top = peopleNode("div", "people-card-top");
+      const photoUrl = peoplePhotos.get(person.id);
+      let avatar;
+      if (photoUrl) {
+        avatar = peopleNode("img", "people-avatar");
+        avatar.src = photoUrl;
+        avatar.alt = "Photo de " + person.display_name;
+        avatar.loading = "lazy";
+      } else {
+        avatar = peopleNode("div", "people-avatar", (person.display_name || "B").trim().charAt(0).toUpperCase());
+        avatar.setAttribute("aria-hidden", "true");
+      }
+      const identity = peopleNode("div", "people-identity");
+      identity.append(peopleNode("h3", "", person.display_name), peopleNode("p", "", "@" + person.username + " · " + person.city));
+      top.append(avatar, identity);
+      const bio = peopleNode("p", "people-bio", person.bio || "Ce membre n’a pas encore ajouté de présentation.");
+      const tags = peopleNode("div", "people-tags");
+      (person.interested_in || []).slice(0, 4).forEach(item => tags.append(peopleNode("span", "people-tag", interestLabel(item))));
+      if (!tags.children.length) tags.append(peopleNode("span", "people-tag", "Nouveaux échanges"));
+      const reputation = peopleReputation.get(person.id);
+      const reputationLine = peopleNode("p", "people-reputation", reputation
+        ? (reputation.rank || "beginner") + " · " + reputation.score + " points"
+        : "Nouveau membre");
+      const actions = peopleNode("div", "people-actions");
+      const liked = peopleLikeIds.has(person.id);
+      const matched = peopleMatchIds.has(person.id);
+      const like = peopleNode("button", "button " + (liked ? "button-outline" : "button-primary"), matched ? "Connexion établie" : liked ? "Like envoyé" : "Envoyer un like");
+      like.type = "button";
+      like.disabled = liked || matched;
+      like.addEventListener("click", async () => {
+        like.disabled = true;
+        try {
+          const { error } = await client.from("likes").insert({ sender_id: currentUserId, receiver_id: person.id });
+          if (error && error.code !== "23505") throw error;
+          peopleLikeIds.add(person.id);
+          like.textContent = "Like envoyé";
+          like.className = "button button-outline";
+          window.BaddieLinkUI?.toast("Votre like a été envoyé.");
+          await loadLikes();
+        } catch (error) {
+          console.error("People like failed:", error);
+          window.BaddieLinkUI?.toast(error.message || "Impossible d’envoyer ce like.", true);
+          like.disabled = false;
+        }
+      });
+      const report = peopleNode("button", "button button-outline", "Signaler");
+      report.type = "button";
+      report.addEventListener("click", () => {
+        if (card.querySelector(".people-report")) return;
+        const form = peopleNode("form", "people-report");
+        const reason = peopleNode("select", "");
+        reason.setAttribute("aria-label", "Motif du signalement");
+        [["fake_profile","Faux profil"],["harassment","Harcèlement"],["underage_safety","Sécurité des mineurs"],["scam","Arnaque"],["sexual_solicitation","Sollicitation sexuelle"],["spam","Spam"],["other","Autre"]].forEach(([value,label]) => {
+          const option = peopleNode("option", "", label); option.value = value; reason.append(option);
+        });
+        const details = peopleNode("textarea", "");
+        details.maxLength = 2000; details.rows = 2; details.placeholder = "Décrivez le problème (facultatif).";
+        const send = peopleNode("button", "button button-outline", "Envoyer le signalement"); send.type = "submit";
+        const cancel = peopleNode("button", "button button-outline", "Annuler"); cancel.type = "button";
+        cancel.addEventListener("click", () => form.remove());
+        const feedback = peopleNode("p", "form-feedback");
+        form.append(reason, details, send, cancel, feedback);
+        form.addEventListener("submit", async event => {
+          event.preventDefault(); send.disabled = true;
+          try {
+            const { error } = await client.from("reports").insert({
+              reporter_id: currentUserId, reported_user_id: person.id,
+              reason: reason.value, details: details.value.trim()
+            });
+            if (error) throw error;
+            feedback.textContent = "Signalement transmis à l’équipe de modération.";
+            report.disabled = true; report.textContent = "Signalé";
+            form.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
+          } catch (error) {
+            feedback.textContent = error.code === "23505" ? "Ce signalement existe déjà." : (error.message || "Le signalement a échoué.");
+            send.disabled = false;
+          }
+        });
+        card.append(form);
+      });
+      const block = peopleNode("button", "button button-outline", "Bloquer");
+      block.type = "button";
+      block.addEventListener("click", async () => {
+        if (!window.confirm("Bloquer @" + person.username + " ? Ce membre ne pourra plus interagir avec vous.")) return;
+        block.disabled = true;
+        try {
+          const { error } = await client.from("blocks").insert({ blocker_id: currentUserId, blocked_id: person.id });
+          if (error && error.code !== "23505") throw error;
+          peopleRows = peopleRows.filter(row => row.id !== person.id);
+          renderPeople();
+          window.BaddieLinkUI?.toast("Membre bloqué.");
+        } catch (error) {
+          window.BaddieLinkUI?.toast(error.message || "Impossible de bloquer ce membre.", true);
+          block.disabled = false;
+        }
+      });
+      actions.append(like, report, block);
+      card.append(top, bio, tags, reputationLine, actions);
+      grid.append(card);
+    });
+    if (status) {
+      if (!peopleRows.length) status.textContent = "Aucun profil approuvé et visible pour le moment. Revenez bientôt.";
+      else if (!visible.length) status.textContent = "Aucun profil ne correspond à votre recherche dans les membres chargés.";
+      else status.textContent = visible.length + " profil(s) affiché(s) · Les profils sont soumis aux règles de visibilité et de sécurité.";
+    }
+    const more = document.querySelector("#load-more-people");
+    if (more) more.classList.toggle("hidden", !peopleHasMore || Boolean(search));
+  }
+
+  async function loadPeople(reset = false) {
+    if (peopleLoading) return;
+    if (reset) {
+      peopleOffset = 0; peopleHasMore = true; peopleRows = [];
+      document.querySelector("#profile-grid")?.replaceChildren();
+    }
+    if (!peopleHasMore) return;
+    peopleLoading = true;
+    const status = document.querySelector("#discover-member-status");
+    if (status) status.textContent = "Chargement des membres approuvés…";
+    const more = document.querySelector("#load-more-people");
+    if (more) more.disabled = true;
+    try {
+      let query = client.from("profiles")
+        .select("id,username,display_name,bio,city,interested_in,created_at")
+        .eq("is_discoverable", true).eq("moderation_status", "approved")
+        .neq("id", currentUserId).order("created_at", { ascending: false })
+        .range(peopleOffset, peopleOffset + peoplePageSize - 1);
+      const city = document.querySelector("#city-filter")?.value;
+      if (city) query = query.eq("city", city);
+      const { data, error } = await query;
+      if (error) throw error;
+      const page = data || [];
+      peopleRows = reset ? page : peopleRows.concat(page);
+      peopleOffset += page.length;
+      peopleHasMore = page.length === peoplePageSize;
+      const ids = peopleRows.map(person => person.id);
+      if (ids.length) {
+        const [{ data: likes, error: likesError }, { data: matches, error: matchesError },
+          { data: photos, error: photosError }, { data: reputations, error: reputationError }] = await Promise.all([
+          client.from("likes").select("receiver_id").eq("sender_id", currentUserId).limit(500),
+          client.from("matches").select("user_one_id,user_two_id").or("user_one_id.eq." + currentUserId + ",user_two_id.eq." + currentUserId).is("ended_at", null).limit(500),
+          client.from("profile_photos").select("user_id,object_path").in("user_id", ids).eq("moderation_status", "approved"),
+          client.from("reputation_profiles").select("user_id,score,rank").in("user_id", ids)
+        ]);
+        if (likesError) throw likesError;
+        if (matchesError) throw matchesError;
+        if (photosError) throw photosError;
+        if (reputationError) throw reputationError;
+        peopleLikeIds = new Set((likes || []).map(row => row.receiver_id));
+        peopleMatchIds = new Set((matches || []).map(row => row.user_one_id === currentUserId ? row.user_two_id : row.user_one_id));
+        peopleReputation = new Map((reputations || []).map(row => [row.user_id, row]));
+        peoplePhotos = new Map();
+        const photoRows = photos || [];
+        if (photoRows.length) {
+          const { data: signed, error: signedError } = await client.storage.from("baddielink-profile-photos")
+            .createSignedUrls(photoRows.map(row => row.object_path), 1800);
+          if (signedError) throw signedError;
+          (signed || []).forEach(item => {
+            const photo = photoRows.find(row => row.object_path === item.path);
+            if (photo && item.signedUrl) peoplePhotos.set(photo.user_id, item.signedUrl);
+          });
+        }
+      }
+      renderPeople();
+    } catch (error) {
+      console.error("BaddieLink People discovery failed:", error);
+      if (status) status.textContent = "Impossible de charger les membres. Vérifiez votre connexion puis actualisez.";
+      window.BaddieLinkUI?.toast(error.message || "Le chargement des membres a échoué.", true);
+    } finally {
+      peopleLoading = false;
+      if (more) more.disabled = false;
+    }
+  }
+
+  async function loadLikes() {
+    const target = document.querySelector("#likes-grid");
+    if (!target) return;
+    target.replaceChildren(peopleNode("p", "discover-note", "Chargement de vos likes…"));
+    try {
+      const [{ data: sent, error: sentError }, { data: received, error: receivedError }] = await Promise.all([
+        client.from("likes").select("receiver_id,created_at").eq("sender_id", currentUserId).order("created_at", { ascending: false }).limit(100),
+        client.from("likes").select("sender_id,created_at").eq("receiver_id", currentUserId).order("created_at", { ascending: false }).limit(100)
+      ]);
+      if (sentError) throw sentError;
+      if (receivedError) throw receivedError;
+      const ids = [...new Set([...(sent || []).map(row => row.receiver_id), ...(received || []).map(row => row.sender_id)])];
+      const { data: profiles, error: profilesError } = ids.length
+        ? await client.from("profiles").select("id,username,display_name,city,bio").in("id", ids)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+      const profileMap = new Map((profiles || []).map(row => [row.id, row]));
+      target.replaceChildren();
+      const addSection = (title, rows, key) => {
+        target.append(peopleNode("h3", "people-list-heading", title));
+        const found = rows.map(row => profileMap.get(row[key])).filter(Boolean);
+        if (!found.length) target.append(peopleNode("p", "discover-note", "Rien à afficher pour le moment."));
+        found.forEach(person => {
+          const card = peopleNode("article", "people-card");
+          const top = peopleNode("div", "people-card-top");
+          top.append(peopleNode("div", "people-avatar", (person.display_name || "B").charAt(0).toUpperCase()));
+          const identity = peopleNode("div", "people-identity");
+          identity.append(peopleNode("h3", "", person.display_name), peopleNode("p", "", "@" + person.username + " · " + person.city));
+          top.append(identity); card.append(top, peopleNode("p", "people-bio", person.bio || "Aucune présentation."));
+          target.append(card);
+        });
+      };
+      addSection("Les likes que vous avez envoyés", sent || [], "receiver_id");
+      addSection("Les likes reçus", received || [], "sender_id");
+    } catch (error) {
+      console.error("BaddieLink likes load failed:", error);
+      target.replaceChildren(peopleNode("p", "discover-note", "Impossible de charger vos likes. Réessayez."));
+    }
+  }
+
+  document.querySelector("#refresh-people")?.addEventListener("click", () => loadPeople(true));
+  document.querySelector("#load-more-people")?.addEventListener("click", () => loadPeople(false));
+  document.querySelector("#city-filter")?.addEventListener("change", () => loadPeople(true));
+  document.querySelector("#people-search")?.addEventListener("input", renderPeople);
+
+  const eventCategoryLabels = { concert: "Concert", party: "Soirée", exhibition: "Exposition", networking: "Réseautage", community: "Communauté", culture: "Culture", sports: "Sport", other: "Autre" };
+  function eventNode(tag, className, value) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (value !== undefined) el.textContent = value;
+    return el;
+  }
+  function formatEventDate(value) {
+    return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Abidjan" }).format(new Date(value));
+  }
+
+  async function loadEvents() {
+    const list = document.querySelector("#events-list");
+    if (!list) return;
+    list.replaceChildren(eventNode("p", "discover-note", "Chargement des événements…"));
+    try {
+      let query = client.from("events").select("id,created_by,title,description,category,organizer_name,city,district,venue_name,address,starts_at,ends_at,entry_fee_xof,status,event_image_path")
+        .eq("status", "published").gte("starts_at", new Date().toISOString()).order("starts_at", { ascending: true }).limit(50);
+      const city = document.querySelector("#event-city-filter")?.value;
+      const category = document.querySelector("#event-category-filter")?.value;
+      if (city) query = query.eq("city", city);
+      if (category) query = query.eq("category", category);
+      const [{ data: events, error }, { data: interests, error: interestError }] = await Promise.all([
+        query,
+        client.from("event_interests").select("event_id").eq("user_id", currentUserId)
+      ]);
+      if (error) throw error;
+      if (interestError) throw interestError;
+      const interested = new Set((interests || []).map(row => row.event_id));
+      list.replaceChildren();
+      if (!events?.length) {
+        list.append(eventNode("p", "discover-note", "Aucun événement publié ne correspond à ces filtres pour le moment."));
+        return;
+      }
+      events.forEach(event => {
+        const card = eventNode("article", "event-card");
+        card.id = "event-" + event.id;
+        if (event.event_image_path) loadEventImage(event.event_image_path).then(url => { if (url) { const img = eventNode("img", "event-card-image"); img.src = url; img.alt = "Couverture : " + event.title; card.prepend(img); } });
+        const meta = eventNode("div", "event-meta", (eventCategoryLabels[event.category] || "Événement") + " · " + event.city + (event.district ? " · " + event.district : ""));
+        const title = eventNode("h3", "", event.title);
+        const desc = eventNode("p", "event-description", event.description);
+        const date = eventNode("p", "event-detail", "📅 " + formatEventDate(event.starts_at));
+        const venue = eventNode("p", "event-detail", "⌖ " + event.venue_name + " · " + event.address);
+        const organizer = eventNode("p", "event-detail", "Organisé par " + event.organizer_name);
+        const fee = eventNode("p", "event-detail", event.entry_fee_xof > 0 ? "Entrée : " + Number(event.entry_fee_xof).toLocaleString("fr-FR") + " XOF" : "Entrée gratuite");
+        const action = eventNode("button", "button button-outline event-interest", interested.has(event.id) ? "Ne plus suivre" : "Intéressé(e)");
+        action.type = "button";
+        action.addEventListener("click", async () => {
+          action.disabled = true;
+          try {
+            if (interested.has(event.id)) {
+              const { error: removeError } = await client.from("event_interests").delete().eq("event_id", event.id).eq("user_id", currentUserId);
+              if (removeError) throw removeError;
+              interested.delete(event.id);
+              action.textContent = "Intéressé(e)";
+            } else {
+              const { error: addError } = await client.from("event_interests").insert({ event_id: event.id, user_id: currentUserId });
+              if (addError) throw addError;
+              interested.add(event.id);
+              action.textContent = "Ne plus suivre";
+            }
+            loadMyEvents();
+          } catch (error) {
+            window.BaddieLinkUI?.toast(error.message || "Impossible de modifier votre intérêt.", true);
+          } finally { action.disabled = false; }
+        });
+
+        const actions = eventNode("div", "event-card-actions");
+        const share = eventNode("button", "button button-outline event-secondary-action", "Partager");
+        share.type = "button";
+        share.addEventListener("click", async () => {
+          const shareData = { title: event.title, text: event.title + " · " + event.venue_name + " · " + formatEventDate(event.starts_at), url: location.origin + location.pathname + "?event=" + encodeURIComponent(event.id) + "#espace" };
+          try {
+            if (navigator.share) await navigator.share(shareData);
+            else if (navigator.clipboard?.writeText) {
+              await navigator.clipboard.writeText(shareData.url);
+              window.BaddieLinkUI?.toast("Lien de l’événement copié.");
+            } else window.BaddieLinkUI?.toast("Le partage n’est pas disponible sur cet appareil.", true);
+          } catch (error) {
+            if (error.name !== "AbortError") window.BaddieLinkUI?.toast("Impossible de partager cet événement.", true);
+          }
+        });
+        actions.append(share);
+        if (event.created_by !== currentUserId) {
+          const report = eventNode("button", "button button-outline event-secondary-action", "Signaler");
+          report.type = "button";
+          report.addEventListener("click", () => {
+            if (card.querySelector(".event-report-form")) return;
+            const reportForm = eventNode("form", "event-report-form");
+            const reason = eventNode("select", "");
+            reason.name = "reason";
+            [["spam","Spam"],["misleading","Informations trompeuses"],["unsafe","Événement dangereux"],["harassment","Harcèlement"],["other","Autre"]].forEach(([value,label]) => {
+              const option = eventNode("option", "", label); option.value = value; reason.append(option);
+            });
+            const details = eventNode("textarea", "");
+            details.name = "details"; details.maxLength = 1000; details.rows = 2; details.placeholder = "Détails facultatifs";
+            const send = eventNode("button", "button button-outline event-secondary-action", "Envoyer le signalement"); send.type = "submit";
+            const cancel = eventNode("button", "button button-outline event-secondary-action", "Annuler"); cancel.type = "button";
+            cancel.addEventListener("click", () => reportForm.remove());
+            const feedback = eventNode("p", "form-feedback");
+            reportForm.append(reason, details, send, cancel, feedback);
+            reportForm.addEventListener("submit", async submit => {
+              submit.preventDefault(); send.disabled = true;
+              try {
+                const { error } = await client.from("event_reports").insert({
+                  event_id: event.id, reporter_id: currentUserId,
+                  reason: reason.value, details: details.value.trim() || null
+                });
+                if (error) throw error;
+                feedback.textContent = "Signalement transmis à l’équipe de modération.";
+                report.disabled = true; report.textContent = "Signalé";
+                reportForm.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
+              } catch (error) {
+                feedback.textContent = error.code === "23505" ? "Vous avez déjà signalé cet événement." : (error.message || "Le signalement a échoué.");
+                send.disabled = false;
+              }
+            });
+            card.append(reportForm);
+          });
+          actions.append(report);
+        }
+        card.append(meta, title, desc, date, venue, organizer, fee, action, actions);
+        list.append(card);
+      });
+    } catch (error) {
+      console.error("BaddieLink events load failed:", error);
+      list.replaceChildren(eventNode("p", "discover-note", "Impossible de charger les événements. Réessayez."));
+    }
+  }
+
+
+  async function loadMyEvents() {
+    const target = document.querySelector("#my-events-list");
+    if (!target) return;
+    try {
+      const [{ data: interestRows, error: interestError }, { data: createdRows, error: createdError }, { data: organizer, error: organizerError }] = await Promise.all([
+        client.from("event_interests").select("created_at, events(id,title,starts_at,city,status)").eq("user_id", currentUserId).order("created_at", { ascending: false }).limit(30),
+        client.from("events").select("id,title,starts_at,city,status").eq("created_by", currentUserId).order("created_at", { ascending: false }).limit(30),
+        client.from("event_organizers").select("status").eq("user_id", currentUserId).maybeSingle()
+      ]);
+      if (interestError) throw interestError;
+      if (createdError) throw createdError;
+      if (organizerError) throw organizerError;
+      target.replaceChildren();
+      const interestedEvents = (interestRows || []).filter(row => row.events);
+      const submittedEvents = createdRows || [];
+      const heading1 = eventNode("h4", "my-events-heading", "Événements suivis");
+      target.append(heading1);
+      if (!interestedEvents.length) target.append(eventNode("p", "muted", "Vous ne suivez encore aucun événement."));
+      interestedEvents.forEach(row => target.append(eventNode("p", "my-event-item", row.events.title + " · " + formatEventDate(row.events.starts_at) + " · " + row.events.city)));
+      target.append(eventNode("h4", "my-events-heading", "Événements proposés"));
+      if (!submittedEvents.length) target.append(eventNode("p", "muted", "Vous n’avez proposé aucun événement."));
+      submittedEvents.forEach(item => {
+        const wrap = eventNode("div", "my-event-submission");
+        const statusLabels = { pending_review: "En attente de modération", published: "Publié", rejected: "Refusé", cancelled: "Annulé", completed: "Terminé" };
+        wrap.append(eventNode("p", "my-event-item", item.title + " · " + formatEventDate(item.starts_at) + " · " + (statusLabels[item.status] || item.status)));
+        if (item.status === "pending_review" || (item.status === "published" && ["approved","trusted"].includes(organizer?.status))) {
+          const action = eventNode("button", "button button-outline event-secondary-action", item.status === "pending_review" && ["approved","trusted"].includes(organizer?.status) ? "Publier maintenant" : "Retirer l’événement");
+          action.type = "button";
+          action.addEventListener("click", async () => {
+            action.disabled = true;
+            try {
+              const nextStatus = item.status === "pending_review" && ["approved","trusted"].includes(organizer?.status) ? "published" : "cancelled";
+              const { error } = await client.from("events").update({ status: nextStatus }).eq("id", item.id).eq("created_by", currentUserId);
+              if (error) throw error;
+              await Promise.all([loadMyEvents(), loadEvents()]);
+            } catch (error) {
+              window.BaddieLinkUI?.toast(error.message || "Impossible de modifier cet événement.", true);
+              action.disabled = false;
+            }
+          });
+          wrap.append(action);
+        }
+        target.append(wrap);
+      });
+    } catch (error) {
+      console.error("BaddieLink personal events load failed:", error);
+      target.textContent = "Impossible de charger vos événements.";
+    }
+  }
+
+  async function uploadEventImage(file) {
+    if (!file) return null;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      throw new Error("L’image doit être au format JPEG, PNG ou WebP et faire 5 Mo maximum.");
+    }
+    const extension = ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" })[file.type];
+    const path = currentUserId + "/" + crypto.randomUUID() + "." + extension;
+    const { error } = await client.storage.from("baddielink-event-images")
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (error) throw error;
+    return path;
+  }
+
+  async function loadEventImage(path) {
+    if (!path) return null;
+    const { data, error } = await client.storage.from("baddielink-event-images").createSignedUrl(path, 3600);
+    if (error) {
+      console.warn("Event image not accessible:", error);
+      return null;
+    }
+    return data?.signedUrl || null;
+  }
+
+
+  async function loadOrganizerApplication() {
+    const form = document.querySelector("#organizer-application-form");
+    if (!form) return;
+    const feedback = document.querySelector("#organizer-application-feedback");
+    try {
+      const [{ data: application, error }, { data: organizer, error: organizerError }] = await Promise.all([
+        client.from("organizer_applications").select("organization_name,status").eq("user_id", currentUserId).maybeSingle(),
+        client.from("event_organizers").select("organization_name,status").eq("user_id", currentUserId).maybeSingle()
+      ]);
+      if (error) throw error;
+      if (organizerError) throw organizerError;
+      if (organizer && ["approved","trusted"].includes(organizer.status)) {
+        feedback.textContent = "Votre compte organisateur est " + (organizer.status === "trusted" ? "de confiance." : "vérifié.") + " Vous pouvez publier directement vos événements.";
+        feedback.classList.remove("hidden");
+        form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+      } else if (application) {
+        feedback.textContent = application.status === "pending"
+          ? "Demande reçue pour " + application.organization_name + ". Elle est en attente de vérification."
+          : application.status === "approved" ? "Votre demande est approuvée. Actualisez la page pour voir vos droits organisateur."
+          : "Votre demande précédente a été refusée. Contactez l’équipe d’assistance si vous souhaitez demander un nouvel examen.";
+        feedback.classList.remove("hidden");
+        form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+      }
+    } catch (error) {
+      console.warn("Organizer application status unavailable:", error);
+    }
+  }
+
+  async function submitOrganizerApplication(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.querySelector("#organizer-application-submit");
+    const feedback = document.querySelector("#organizer-application-feedback");
+    const website = form.elements.website_url.value.trim();
+    if (website) {
+      try {
+        const parsed = new URL(website);
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+      } catch {
+        feedback.textContent = "Entrez une adresse web valide commençant par https://.";
+        feedback.classList.remove("hidden");
+        return;
+      }
+    }
+    button.disabled = true;
+    try {
+      const { error } = await client.from("organizer_applications").insert({
+        user_id: currentUserId,
+        organization_name: form.elements.organization_name.value.trim(),
+        organization_type: form.elements.organization_type.value,
+        website_url: website || null,
+        description: form.elements.description.value.trim()
+      });
+      if (error) throw error;
+      feedback.textContent = "Demande envoyée. Elle sera examinée par l’équipe BaddieLink.";
+      feedback.classList.remove("hidden");
+      form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+    } catch (error) {
+      feedback.textContent = error.code === "23505" ? "Une demande existe déjà pour ce compte." : (error.message || "Impossible d’envoyer la demande.");
+      feedback.classList.remove("hidden");
+      button.disabled = false;
+    }
+  }
+
+  async function submitEvent(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.querySelector("#event-create-submit");
+    const feedback = document.querySelector("#event-create-feedback");
+    const show = (text, isError = false) => {
+      feedback.textContent = text;
+      feedback.style.color = isError ? "#ff9aa8" : "#a7e0bd";
+      feedback.classList.remove("hidden");
+    };
+    const startsAt = new Date(form.elements.starts_at.value);
+    const endsAt = form.elements.ends_at.value ? new Date(form.elements.ends_at.value) : null;
+    if (!Number.isFinite(startsAt.getTime()) || startsAt <= new Date()) return show("Choisissez une date future valide.", true);
+    if (endsAt && (!Number.isFinite(endsAt.getTime()) || endsAt <= startsAt)) return show("L’heure de fin doit être postérieure au début.", true);
+    const imageFile = form.elements.event_image.files?.[0] || null;
+    const payload = {
+      created_by: currentUserId,
+      title: form.elements.title.value.trim(),
+      description: form.elements.description.value.trim(),
+      category: form.elements.category.value,
+      organizer_name: form.elements.organizer_name.value.trim(),
+      city: form.elements.city.value.trim(),
+      district: form.elements.district.value.trim() || null,
+      venue_name: form.elements.venue_name.value.trim(),
+      address: form.elements.address.value.trim(),
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt ? endsAt.toISOString() : null,
+      entry_fee_xof: Number(form.elements.entry_fee_xof.value),
+      event_image_path: null,
+      status: "pending_review"
+    };
+    if (payload.title.length < 3 || payload.description.length < 10 || !Number.isSafeInteger(payload.entry_fee_xof) || payload.entry_fee_xof < 0) return show("Vérifiez le titre, la description et le tarif.", true);
+    button.disabled = true;
+    button.textContent = "Envoi…";
+    try {
+      const { data: organizer, error: organizerError } = await client.from("event_organizers")
+        .select("status").eq("user_id", currentUserId).maybeSingle();
+      if (organizerError) throw organizerError;
+      if (["approved", "trusted"].includes(organizer?.status)) payload.status = "published";
+      if (imageFile) payload.event_image_path = await uploadEventImage(imageFile);
+      const { error } = await client.from("events").insert(payload);
+      if (error) {
+        if (payload.event_image_path) await client.storage.from("baddielink-event-images").remove([payload.event_image_path]);
+        throw error;
+      }
+      form.reset();
+      form.elements.city.value = "Abidjan";
+      show(payload.status === "published" ? "Événement publié." : "Événement envoyé. Il sera visible après modération.");
+      await loadEvents();
+    } catch (error) {
+      console.error("BaddieLink event submission failed:", error);
+      show(error.message || "L’envoi de l’événement a échoué.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Envoyer l’événement";
+    }
   }
 
   function openProfileEditor(profile) {
@@ -148,12 +1125,40 @@
     });
     document.querySelector("#profile-editor-feedback").classList.add("hidden");
     modal.classList.remove("hidden");
+    loadProfilePhoto().catch(error => console.warn("Profile photo preview unavailable:", error));
   }
 
   function closeProfileEditor() {
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
+
+  document.querySelector("#event-image")?.addEventListener("change", event => {
+    previewImageInput(
+      event.target,
+      document.querySelector("#event-image-preview"),
+      document.querySelector("#event-create-feedback"),
+      "Aperçu prêt. La couverture sera associée à votre événement."
+    );
+  });
+  document.querySelector("#profile-photo-file")?.addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    const preview = document.querySelector("#profile-photo-preview");
+    const note = document.querySelector("#profile-photo-feedback");
+    if (!file || !preview || !note) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      note.textContent = "Choisissez une image JPEG, PNG ou WebP de 5 Mo maximum.";
+      note.style.color = "#ff9aa8";
+      note.classList.remove("hidden");
+      event.target.value = "";
+      return;
+    }
+    preview.style.backgroundImage = "url('" + URL.createObjectURL(file) + "')";
+    note.textContent = "Aperçu prêt. Appuyez sur « Envoyer la photo » pour la soumettre à la modération.";
+    note.style.color = "#a7e0bd";
+    note.classList.remove("hidden");
+  });
+  document.querySelector("#upload-profile-photo")?.addEventListener("click", uploadProfilePhoto);
   document.querySelector("#close-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#cancel-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#profile-editor-modal")?.addEventListener("click", event => {
@@ -226,6 +1231,12 @@
       save.textContent = "Enregistrer";
     }
   });
+
+  document.querySelector("#event-create-form")?.addEventListener("submit", submitEvent);
+  document.querySelector("#organizer-application-form")?.addEventListener("submit", submitOrganizerApplication);
+  document.querySelector("#refresh-events")?.addEventListener("click", loadEvents);
+  document.querySelector("#event-city-filter")?.addEventListener("change", loadEvents);
+  document.querySelector("#event-category-filter")?.addEventListener("change", loadEvents);
 
   async function submitAuth(event) {
     event.preventDefault();

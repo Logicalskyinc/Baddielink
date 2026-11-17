@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>BaddieLink · OpenMLS browser experiment</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background: #101014; color: #f5f1f4; }
+    body { max-width: 760px; margin: 0 auto; padding: 32px 20px; }
+    h1 { font-size: 1.5rem; }
+    p { color: #b9b2bd; }
+    button { border: 0; border-radius: 8px; padding: 12px 16px; background: #e95884; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    pre { min-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border: 1px solid #34303a; border-radius: 10px; background: #19171e; }
+    .warning { padding: 12px; border-left: 3px solid #d7b77b; background: #252119; color: #e8d9b8; }
+  </style>
+</head>
+<body>
+  <h1>OpenMLS browser experiment</h1>
+  <p class="warning">Isolated technical experiment only. Do not use real accounts, private keys, or user messages. This is not BaddieLink's production chat and does not establish an end-to-end encryption guarantee.</p>
+  <p>This harness tests browser WebAssembly initialization, a small MLS group, member onboarding, encrypted application messages, and group-secret agreement.</p>
+  <button id="run" type="button" disabled>Initializing WebAssembly…</button>
+  <pre id="output" role="status" aria-live="polite">Loading the OpenMLS WebAssembly module…</pre>
+  <script type="module">
+    import init, { Identity, Provider, Group } from "./openmls_wasm.js";
+
+    const button = document.querySelector("#run");
+    const output = document.querySelector("#output");
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+
+    function log(message) {
+      output.textContent += "\n" + message;
+    }
+
+    function equalBytes(left, right) {
+      if (left.length !== right.length) return false;
+      return left.every((value, index) => value === right[index]);
+    }
+
+    try {
+      await init();
+      button.disabled = false;
+      button.textContent = "Run MLS group round-trip test";
+      output.textContent = "WebAssembly initialized. No network or Supabase calls are made by this page.";
+    } catch (error) {
+      output.textContent = "WebAssembly initialization failed: " + (error?.stack || error);
+    }
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      output.textContent = "Starting a local-only MLS test…";
+      try {
+        const aliceProvider = new Provider();
+        const bobProvider = new Provider();
+        const charlesProvider = new Provider();
+
+        const alice = new Identity(aliceProvider, "alice");
+        const bob = new Identity(bobProvider, "bob");
+        const charles = new Identity(charlesProvider, "charles");
+        log("PASS: created three local identities.");
+
+        const aliceGroup = Group.create_new(aliceProvider, alice, "baddielink-poc-group");
+        const bobKeyPackage = bob.key_package(bobProvider);
+        const bobWelcome = aliceGroup.propose_and_commit_add(aliceProvider, alice, bobKeyPackage);
+        aliceGroup.merge_pending_commit(aliceProvider);
+        const bobGroup = Group.join(bobProvider, bobWelcome.welcome, aliceGroup.export_ratchet_tree());
+        log("PASS: created a group and onboarded Bob.");
+
+        const charlesKeyPackage = charles.key_package(charlesProvider);
+        const charlesWelcome = aliceGroup.propose_and_commit_add(aliceProvider, alice, charlesKeyPackage);
+        aliceGroup.merge_pending_commit(aliceProvider);
+        bobGroup.process_message(bobProvider, charlesWelcome.proposal);
+        bobGroup.process_message(bobProvider, charlesWelcome.commit);
+        const charlesGroup = Group.join(charlesProvider, charlesWelcome.welcome, aliceGroup.export_ratchet_tree());
+        log("PASS: existing members processed the group membership change and Charles joined.");
+
+        const plaintext = encoder.encode("BaddieLink local MLS test message");
+        const ciphertext = aliceGroup.create_message(aliceProvider, alice, plaintext);
+        const bobPlaintext = bobGroup.process_message(bobProvider, ciphertext);
+        const charlesPlaintext = charlesGroup.process_message(charlesProvider, ciphertext);
+
+        if (decoder.decode(bobPlaintext) !== decoder.decode(plaintext)) {
+          throw new Error("Bob's decrypted message did not match the original.");
+        }
+        if (decoder.decode(charlesPlaintext) !== decoder.decode(plaintext)) {
+          throw new Error("Charles's decrypted message did not match the original.");
+        }
+        log("PASS: Bob and Charles decrypted the same application message.");
+        log("PASS: message bytes passed through the MLS API as ciphertext between group members.");
+
+        const aliceSecret = aliceGroup.export_key(aliceProvider, "baddielink-poc", encoder.encode("epoch-check"), 32);
+        const bobSecret = bobGroup.export_key(bobProvider, "baddielink-poc", encoder.encode("epoch-check"), 32);
+        const charlesSecret = charlesGroup.export_key(charlesProvider, "baddielink-poc", encoder.encode("epoch-check"), 32);
+        if (!equalBytes(aliceSecret, bobSecret) || !equalBytes(aliceSecret, charlesSecret)) {
+          throw new Error("Group members did not derive matching exporter secrets.");
+        }
+        log("PASS: all current group members derived matching exporter secrets.");
+        log("RESULT: local group round-trip checks passed. This does not test persistence, device recovery, revocation, replay handling, or production security.");
+      } catch (error) {
+        log("FAIL: " + (error?.stack || error));
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
