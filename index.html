@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr-CI">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101014">
+  <meta name="description" content="BaddieLink, faites de nouvelles rencontres en Côte d’Ivoire.">
+  <title>BaddieLink — Rencontres en Côte d’Ivoire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="BaddieLink accueil"><span class="brand-mark">B</span><span>Baddie<span class="brand-accent">Link</span></span></a>
+    <div class="topbar-right"><span class="country-tag"><span class="flag">🇨🇮</span> Côte d’Ivoire</span><button class="button button-quiet" id="header-login">Connexion</button><button class="button button-primary" id="header-signup">Créer un compte</button></div>
+  </header>
+
+  <main>
+    <section class="welcome" id="welcome">
+      <div class="welcome-copy">
+        <p class="eyebrow"><span class="eyebrow-line"></span> LES RENCONTRES, À VOTRE RYTHME</p>
+        <h1>De belles connexions.<br><em>De vraies possibilités.</em></h1>
+        <p class="lead">Rencontrez des personnes près de chez vous, découvrez de nouveaux profils et créez des liens qui vous ressemblent.</p>
+        <div class="welcome-actions"><button class="button button-primary button-large" id="hero-signup">Rejoindre BaddieLink <span aria-hidden="true">↗</span></button><button class="button button-outline button-large" id="hero-login">J’ai déjà un compte</button></div>
+        <div class="trust-row"><span>✦ Profils à découvrir</span><span>✦ Pensé pour la Côte d’Ivoire</span></div>
+      </div>
+      <div class="welcome-art" aria-label="Illustration décorative">
+        <div class="art-orbit orbit-a"></div><div class="art-orbit orbit-b"></div>
+        <div class="art-card art-card-main"><div class="art-photo photo-main"></div><div class="art-card-caption"><strong>De nouvelles rencontres</strong><span>Commencez par un bonjour.</span></div></div>
+        <div class="art-card art-card-small"><div class="art-photo photo-small"></div><div class="online-dot"></div><div class="small-caption"><strong>À proximité</strong><span>Abidjan, CI</span></div></div>
+        <span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><span class="art-pill">🇨🇮 100 % Côte d’Ivoire</span>
+      </div>
+    </section>
+
+    <section class="auth-panel hidden" id="auth-panel" aria-labelledby="auth-title">
+      <div class="auth-aside"><span class="brand-mark">B</span><p class="eyebrow">BIENVENUE DANS LA COMMUNAUTÉ</p><h2>Chaque rencontre<br><em>commence quelque part.</em></h2><p>Créez votre profil et découvrez des personnes en Côte d’Ivoire.</p></div>
+      <div class="auth-form-wrap">
+        <button class="back-link" id="back-home">← Retour à l’accueil</button>
+        <h2 id="auth-title">Créer votre compte</h2><p class="muted" id="auth-subtitle">Quelques informations pour commencer.</p>
+        <form id="auth-form">
+          <div class="field" id="name-field"><label for="full-name">Nom affiché</label><input id="full-name" name="name" autocomplete="name" placeholder="Ex. Aïcha K." maxlength="40"></div>
+          <div class="field"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="email" placeholder="vous@exemple.com" required></div>
+          <div class="field"><label for="phone">Téléphone (facultatif)</label><div class="phone-input"><span>🇨🇮 +225</span><input id="phone" name="phone" inputmode="numeric" maxlength="10" placeholder="07 00 00 00 00"></div><small>Numéro ivoirien à 10 chiffres. Ne partagez pas votre numéro publiquement.</small></div>
+          <div class="field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" minlength="8" autocomplete="new-password" placeholder="8 caractères minimum" required></div>
+          <label class="checkline"><input id="terms" type="checkbox" required><span>J’accepte les conditions d’utilisation et la politique de confidentialité.</span></label>
+          <button class="button button-primary button-full button-large" type="submit" id="auth-submit">Créer mon compte</button>
+        </form>
+        <p class="switch-auth" id="switch-auth">Vous avez déjà un compte ? <button class="text-button" id="switch-auth-button">Se connecter</button></p>
+        <p class="demo-note">Prototype : aucun compte n’est créé sur un serveur à ce stade.</p>
+      </div>
+    </section>
+
+    <section class="app-shell hidden" id="app-shell">
+      <aside class="sidebar">
+        <a class="brand sidebar-brand" href="#"><span class="brand-mark">B</span><span>Baddie<span class="brand-accent">Link</span></span></a>
+        <div class="sidebar-user"><div class="avatar avatar-user">H</div><div><strong id="sidebar-name">Votre profil</strong><span>Mode démonstration</span></div></div>
+        <nav class="side-nav" aria-label="Navigation principale">
+          <button class="nav-item active" data-view="discover"><span>⌕</span> Découvrir</button>
+          <button class="nav-item" data-view="likes"><span>♡</span> Mes likes <b class="nav-count" id="likes-count">0</b></button>
+          <button class="nav-item" data-view="messages"><span>▤</span> Messages</button>
+          <button class="nav-item" data-view="wallet"><span>◇</span> Portefeuille</button>
+          <button class="nav-item" data-view="profile"><span>◉</span> Mon profil</button>
+        </nav>
+        <div class="sidebar-bottom"><button class="nav-item" data-view="settings"><span>⚙</span> Paramètres</button><button class="nav-item" id="logout"><span>↪</span> Déconnexion</button><p>© 2026 BaddieLink</p></div>
+      </aside>
+      <section class="workspace">
+        <div class="mobile-head"><a class="brand" href="#"><span class="brand-mark">B</span><span>Baddie<span class="brand-accent">Link</span></span></a><button class="icon-button" id="mobile-settings" aria-label="Paramètres">⚙</button></div>
+        <div class="workspace-head"><div><p class="eyebrow" id="view-kicker">VOTRE ESPACE</p><h1 id="view-title">Découvrir</h1><p class="muted" id="view-description">Des profils à découvrir, près de vous.</p></div><span class="location-chip">⌖ Côte d’Ivoire</span></div>
+        <div class="view active" id="view-discover">
+          <div class="filter-row"><div class="filter-label">Explorer les profils</div><select id="city-filter" aria-label="Filtrer par ville"><option value="Toutes les villes">Toutes les villes</option><option>Abidjan</option><option>Grand-Bassam</option><option>Bouaké</option><option>Yamoussoukro</option><option>San-Pédro</option><option>Korhogo</option></select></div>
+          <div class="profile-grid" id="profile-grid"></div>
+        </div>
+        <div class="view" id="view-likes"><div class="empty-state"><span>♡</span><h3>Vos coups de cœur</h3><p>Les profils que vous aimez apparaîtront ici.</p><button class="button button-outline" data-goto="discover">Découvrir des profils</button></div><div class="profile-grid" id="likes-grid"></div></div>
+        <div class="view" id="view-messages"><div class="messages-layout"><div class="conversation-list"><h3>Conversations</h3><button class="conversation active"><span class="avatar avatar-a">A</span><span><strong>Aminata</strong><small>Bonjour, comment allez-vous ?</small></span><i></i></button><button class="conversation"><span class="avatar avatar-b">K</span><span><strong>Kevin</strong><small>Ravi de faire votre connaissance !</small></span></button><p class="demo-note">Conversations fictives de démonstration.</p></div><div class="chat-window"><div class="chat-head"><span class="avatar avatar-a">A</span><div><strong>Aminata</strong><small>Profil de démonstration</small></div></div><div class="chat-body" id="chat-body"><div class="chat-date">Aujourd’hui</div><div class="bubble received">Bonjour ! Comment allez-vous ?</div><div class="bubble sent">Très bien, merci. Et vous ?</div><div class="bubble received">Ça va très bien 😊</div></div><form class="chat-compose" id="chat-form"><input id="chat-message" placeholder="Écrire un message…" maxlength="500" autocomplete="off"><button class="button button-primary" type="submit" aria-label="Envoyer">➤</button></form></div></div></div>
+        <div class="view" id="view-wallet"><div class="wallet-card"><p>Votre solde de démonstration</p><h2>0 <small>FCFA</small></h2><span>Les paiements ne sont pas encore activés.</span></div><div class="section-heading"><div><h3>BaddieCoins</h3><p class="muted">Les crédits pourront servir à envoyer des cadeaux virtuels.</p></div></div><div class="wallet-info"><span>◇</span><div><strong>Rechargement indisponible</strong><p>Aucun achat ni transfert d’argent réel n’est possible dans cette version.</p></div></div></div>
+        <div class="view" id="view-profile"><div class="profile-settings-card"><div class="avatar avatar-user profile-avatar">H</div><div><h2 id="profile-name">Votre profil</h2><p class="muted">Côte d’Ivoire · Profil de démonstration</p></div></div><div class="settings-block"><h3>À propos de vous</h3><p>Complétez votre profil pour aider les autres à mieux vous connaître.</p><button class="button button-outline" id="edit-profile">Modifier le profil</button></div></div>
+        <div class="view" id="view-settings"><div class="settings-block"><h3>Préférences</h3><div class="setting-row"><div><strong>Langue</strong><p>Langue de l’interface</p></div><span>Français (Côte d’Ivoire)</span></div><div class="setting-row"><div><strong>Pays</strong><p>Région de votre compte</p></div><span>🇨🇮 Côte d’Ivoire</span></div><div class="setting-row"><div><strong>Devise</strong><p>Affichage monétaire</p></div><span>FCFA (XOF)</span></div><div class="setting-row"><div><strong>Fuseau horaire</strong><p>Heure locale</p></div><span>Africa/Abidjan</span></div></div><div class="settings-block"><h3>Sécurité et confidentialité</h3><p>Les outils de vérification, de signalement et de gestion des données seront connectés au backend avant la mise en production.</p></div></div>
+        <footer class="workspace-footer">BaddieLink · Conçu pour la Côte d’Ivoire <span>Prototype frontend</span></footer>
+      </section>
+    </section>
+  </main>
+
+  <div class="modal-backdrop hidden" id="age-modal" role="dialog" aria-modal="true" aria-labelledby="age-title"><div class="modal"><span class="modal-symbol">18+</span><p class="eyebrow">ACCÈS À BADDIELINK</p><h2 id="age-title">Vous devez avoir 18 ans ou plus.</h2><p>En continuant, vous déclarez être majeur(e). Cette déclaration ne constitue pas une vérification officielle de l’âge.</p><div class="modal-actions"><button class="button button-primary button-full" id="age-confirm">J’ai 18 ans ou plus</button><button class="button button-outline button-full" id="age-decline">Je ne suis pas majeur(e)</button></div></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
