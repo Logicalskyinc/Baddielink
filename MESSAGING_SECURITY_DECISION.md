@@ -1,6 +1,6 @@
 # BaddieLink Messaging Privacy and E2EE
 
-**Status:** Architecture requirements agreed; cryptographic protocol selection pending a browser proof of concept.  
+**Status:** Architecture requirements agreed; isolated OpenMLS browser proof-of-concept scaffold committed; compile and browser validation pending.  
 **Branch:** `feat/profile-reputation-events`  
 **Scope:** Direct messages, community discussions, private salons, and room-level identity controls.
 
@@ -43,7 +43,7 @@ Message content, decrypted attachment contents, encryption private keys, and rec
 - **MLS (RFC 9420) / OpenMLS:** a strong candidate for both two-person and group conversations. OpenMLS documents WebAssembly support, but its current project documentation lists WASM among targets that are built but not tested. A browser proof of concept and compatibility/performance testing are mandatory before selection.
 - **Signal libsignal:** provides TypeScript APIs and the Signal Protocol, but Signal's upstream project explicitly says use outside Signal is unsupported and APIs may change without notice. Do not adopt it as a production dependency without resolving that support and maintenance risk.
 
-No protocol is selected by this document. The next technical gate is a small browser/WASM proof of concept that demonstrates persistent encrypted client state, message encryption/decryption, multi-device behavior, group membership changes, and recovery. Compare maintenance, licensing, bundle size, mobile-browser support, and operational complexity before choosing.
+No protocol is selected by this document. An isolated browser/WASM proof-of-concept scaffold now lives in `experiments/openmls-browser-poc/`. It is adapted from the upstream OpenMLS WebAssembly experiment and retained with its MIT license and source notice. The scaffold is not yet compiled or browser-tested. The next technical gate is to build and run it, then extend the test to persistent encrypted client state, multi-device behavior, group membership changes/removal, and recovery. Compare maintenance, licensing, bundle size, mobile-browser support, and operational complexity before choosing.
 
 ## Realtime and authorization
 
@@ -91,4 +91,6 @@ For salons and communities, a member may optionally choose a room-specific displ
 - The current database contains zero rows in `public.messages` and zero rows in `public.matches`.
 - RLS is enabled on `realtime.messages`, but no Realtime authorization policies were found.
 - No tables are currently listed in the `supabase_realtime` publication.
+- An isolated OpenMLS browser/WASM proof-of-concept scaffold has been committed to the feature branch; it is not integrated into the member application.
+- The current development environment did not provide `cargo`, `rustc`, or `wasm-pack`, so the proof of concept has not been compiled or run.
 - No live database changes, migrations, deployments, or billing changes were made while preparing this decision.
