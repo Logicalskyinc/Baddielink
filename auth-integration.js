@@ -13,6 +13,7 @@
   const passwordInput = document.querySelector("#password");
   const terms = document.querySelector("#terms");
   let busy = false;
+  let currentUserId = null;
 
   function message(text, isError = false) {
     if (!feedback) return;
@@ -76,6 +77,7 @@
   }
 
   async function enterAuthenticatedApp(user) {
+    currentUserId = user.id;
     const { data: profile, error } = await client
       .from("profiles")
       .select("display_name, username, bio, city, interested_in, moderation_status, is_discoverable")
@@ -107,7 +109,7 @@
     const visibility = document.querySelector("#profile-visibility");
     if (visibility) visibility.textContent = profile.is_discoverable ? "Découvrable (après approbation)" : "Non visible dans la découverte";
     const editButton = document.querySelector("#edit-profile");
-    editButton?.addEventListener("click", () => openProfileEditor(profile));
+    if (editButton) editButton.onclick = () => openProfileEditor(profile);
 
     // Never expose prototype profiles, fake likes, or sample conversations to real members.
     document.querySelector("#profile-grid").innerHTML = "";
@@ -150,18 +152,6 @@
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
-  document.querySelector("#edit-profile")?.addEventListener("click", () => {
-    const name = document.querySelector("#profile-name")?.textContent || "";
-    const username = document.querySelector("#profile-subtitle")?.textContent?.match(/^@([^ ]+)/)?.[1] || "";
-    openProfileEditor({
-      display_name: name,
-      username,
-      city: document.querySelector("#profile-subtitle")?.textContent?.split(" · ")[1] || "Abidjan",
-      bio: document.querySelector("#profile-bio")?.textContent === "Ajoutez une courte présentation." ? "" : document.querySelector("#profile-bio")?.textContent,
-      interested_in: [],
-      is_discoverable: document.querySelector("#profile-visibility")?.textContent?.startsWith("Découvrable") || false
-    });
-  });
   document.querySelector("#close-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#cancel-profile-editor")?.addEventListener("click", closeProfileEditor);
   document.querySelector("#profile-editor-modal")?.addEventListener("click", event => {
@@ -205,7 +195,7 @@
           interested_in: interests,
           is_discoverable: isDiscoverable
         })
-        .eq("id", client.auth.getUser ? (await client.auth.getUser()).data.user.id : "")
+        .eq("id", currentUserId)
         .select("display_name, username, city, bio, interested_in, is_discoverable, moderation_status")
         .single();
       if (error) throw error;
