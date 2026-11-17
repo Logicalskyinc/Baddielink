@@ -129,6 +129,7 @@
 
   function showAdminConsole() {
     if (!isBaddieLinkAdmin) return;
+    window.__baddielinkMemberFilter = "all";
     document.querySelectorAll(".view").forEach(el => el.classList.remove("active"));
     document.querySelector("#admin-console")?.classList.remove("hidden");
     document.querySelector("#mobile-bottom-nav")?.classList.add("hidden");
