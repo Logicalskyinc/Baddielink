@@ -104,9 +104,10 @@ mod tests {
 
     #[test]
     fn candidate_send_does_not_mutate_committed_provider_and_restores() {
-        let (alice_provider, alice, _alice_group, mut bob_provider, mut bob_group) =
+        let (alice_provider, alice, alice_group, mut bob_provider, mut bob_group) =
             create_alice_bob();
         let committed_before = alice_provider.export_snapshot_bytes().unwrap();
+        let committed_epoch = alice_group.mls_group.epoch();
 
         let candidate = CandidateGroupOperation::create_message(
             &alice_provider,
@@ -121,6 +122,11 @@ mod tests {
         assert_eq!(
             committed_before,
             alice_provider.export_snapshot_bytes().unwrap()
+        );
+        assert_eq!(
+            committed_epoch,
+            alice_group.mls_group.epoch(),
+            "candidate send mutated the original in-memory group"
         );
 
         let candidate_snapshot = candidate.snapshot_bytes().unwrap();
