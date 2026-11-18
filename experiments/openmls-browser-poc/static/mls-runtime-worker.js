@@ -2,7 +2,9 @@ import init, {
   CandidateGroupOperation,
   Group,
   Identity,
-  Provider
+  KeyPackage,
+  Provider,
+  RatchetTree
 } from "./openmls_wasm.js";
 
 const DB_NAME = "baddielink-mls-runtime-v1";
@@ -273,6 +275,107 @@ async function sendMessage(data) {
   return { generation, ciphertext: output.buffer };
 }
 
+
+async function persistCandidate(candidateProvider, candidateGroup, candidateIdentity, faultAt = null) {
+  const snapshot = candidateProvider.export_snapshot_bytes();
+  const envelope = await encryptSnapshot(snapshot);
+  const committedGeneration = await commitEnvelope(envelope, faultAt);
+  // Publish the candidate state in this worker only after journal recovery
+  // confirms the exact encrypted generation.
+  provider = candidateProvider;
+  group = candidateGroup;
+  identity = candidateIdentity;
+  generation = committedGeneration;
+  return committedGeneration;
+}
+
+async function createKeyPackage(data) {
+  if (!ready) throw new Error("MLS runtime is not initialized.");
+  const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
+  const candidateIdentity = Identity.restore(
+    candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
+  );
+  const keyPackage = candidateIdentity.key_package(candidateProvider);
+  const bytes = new Uint8Array(keyPackage.to_bytes());
+  const candidateGroup = Group.load(candidateProvider, metadata.groupId);
+  await persistCandidate(candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null);
+  return { generation, keyPackage: bytes.buffer };
+}
+
+async function addMember(data) {
+  if (!ready) throw new Error("MLS runtime is not initialized.");
+  const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
+  const candidateIdentity = Identity.restore(
+    candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
+  );
+  const candidateGroup = Group.load(candidateProvider, metadata.groupId);
+  const keyPackage = KeyPackage.from_bytes(new Uint8Array(data.keyPackage));
+  const addMessages = candidateGroup.propose_and_commit_add(
+    candidateProvider, candidateIdentity, keyPackage
+  );
+  candidateGroup.merge_pending_commit(candidateProvider);
+  const welcome = new Uint8Array(addMessages.welcome());
+  const ratchetTree = new Uint8Array(candidateGroup.export_ratchet_tree().to_bytes());
+  const committedGeneration = await persistCandidate(
+    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+  );
+  return {
+    generation: committedGeneration,
+    welcome: welcome.buffer,
+    ratchetTree: ratchetTree.buffer
+  };
+}
+
+async function joinGroup(data) {
+  if (!ready) throw new Error("MLS runtime is not initialized.");
+  const nextGroupId = validateIdentifier(data.groupId, "group identifier");
+  const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
+  const candidateIdentity = Identity.restore(
+    candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
+  );
+  const welcome = new Uint8Array(data.welcome);
+  const ratchetTree = RatchetTree.from_bytes(new Uint8Array(data.ratchetTree));
+  const candidateGroup = Group.join(candidateProvider, welcome, ratchetTree);
+
+  const db = await openKeyDatabase();
+  const keyId = `${metadata.accountId}|${metadata.deviceId}`;
+  const oldRecord = await readKeyRecord(db, keyId);
+  if (!oldRecord) throw new Error("Device key record is missing.");
+  const nextRecord = { ...oldRecord, groupId: nextGroupId };
+  await writeKeyRecord(db, keyId, nextRecord);
+  try {
+    const committedGeneration = await persistCandidate(
+      candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+    );
+    metadata.groupId = nextGroupId;
+    return { generation: committedGeneration, joined: true };
+  } catch (error) {
+    try {
+      await writeKeyRecord(db, keyId, oldRecord);
+    } catch {
+      ready = false;
+      throw new Error("Group join did not commit and device metadata rollback failed. Runtime is locked.");
+    }
+    throw error;
+  }
+}
+
+async function receiveMessage(data) {
+  if (!ready) throw new Error("MLS runtime is not initialized.");
+  const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
+  const candidateIdentity = Identity.restore(
+    candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
+  );
+  const candidateGroup = Group.load(candidateProvider, metadata.groupId);
+  const plaintext = new Uint8Array(candidateGroup.process_message(
+    candidateProvider, new Uint8Array(data.ciphertext)
+  ));
+  const committedGeneration = await persistCandidate(
+    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+  );
+  return { generation: committedGeneration, plaintext: plaintext.buffer };
+}
+
 async function handleMessage(data) {
   const id = data?.id;
   try {
@@ -284,6 +387,26 @@ async function handleMessage(data) {
     if (data.action === "send") {
       const result = await sendMessage(data);
       self.postMessage({ id, ok: true, ...result }, [result.ciphertext]);
+      return;
+    }
+    if (data.action === "create-key-package") {
+      const result = await createKeyPackage(data);
+      self.postMessage({ id, ok: true, ...result }, [result.keyPackage]);
+      return;
+    }
+    if (data.action === "add-member") {
+      const result = await addMember(data);
+      self.postMessage({ id, ok: true, ...result }, [result.welcome, result.ratchetTree]);
+      return;
+    }
+    if (data.action === "join") {
+      const result = await joinGroup(data);
+      self.postMessage({ id, ok: true, ...result });
+      return;
+    }
+    if (data.action === "receive") {
+      const result = await receiveMessage(data);
+      self.postMessage({ id, ok: true, ...result }, [result.plaintext]);
       return;
     }
     if (data.action === "close") {
