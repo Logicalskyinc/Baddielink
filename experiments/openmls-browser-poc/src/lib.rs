@@ -247,13 +247,15 @@ impl Group {
         sender: &Identity,
         new_member: &KeyPackage,
     ) -> Result<AddMessages, JsError> {
-        let (proposal_msg, _proposal_ref) =
-            self.mls_group
-                .propose_add_member(provider.as_ref(), &sender.keypair, &new_member.0)?;
+        let (proposal_msg, _proposal_ref) = self
+            .mls_group
+            .propose_add_member(provider.as_ref(), &sender.keypair, &new_member.0)
+            .map_err(|e| JsError::new(&format!("propose_add_member failed: {e}")))?;
 
         let (commit_msg, welcome_msg, _group_info) = self
             .mls_group
-            .commit_to_pending_proposals(provider, &sender.keypair)?;
+            .commit_to_pending_proposals(provider.as_ref(), &sender.keypair)
+            .map_err(|e| JsError::new(&format!("commit_to_pending_proposals failed: {e}")))?;
 
         let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
 
@@ -293,7 +295,7 @@ impl Group {
     pub fn merge_pending_commit(&mut self, provider: &mut Provider) -> Result<(), JsError> {
         self.mls_group
             .merge_pending_commit(provider.as_mut())
-            .map_err(|e| e.into())
+            .map_err(|e| JsError::new(&format!("merge_pending_commit failed: {e}")))
     }
 
     pub fn create_message(
