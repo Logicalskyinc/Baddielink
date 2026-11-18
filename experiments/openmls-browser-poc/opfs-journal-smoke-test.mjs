@@ -61,13 +61,30 @@ try {
       }
       if (!staleGenerationRejected) throw new Error("A stale generation was accepted.");
 
+      const sizeBeforeCorruption = (await request("stat")).size;
+      await request("append-corrupt-frame", { bytes: new Uint8Array(14).fill(0).buffer });
+      const sizeAfterCorruption = (await request("stat")).size;
+      let malformedFrameRejected = false;
+      try {
+        await request("recover");
+      } catch (error) {
+        malformedFrameRejected = /corruption/.test(error.message);
+      }
+      if (!malformedFrameRejected) throw new Error("A malformed complete frame was not rejected.");
+      const sizeAfterFailedRecovery = (await request("stat")).size;
+      if (sizeAfterFailedRecovery !== sizeAfterCorruption || sizeAfterCorruption <= sizeBeforeCorruption) {
+        throw new Error("Fail-closed recovery modified the corrupted journal.");
+      }
+
       return {
         uncommittedStageIgnored: true,
         tornTailDetectedAndRepaired: true,
         commitAfterRepair: true,
         latestGeneration: reopened.generation,
         persistedAfterReopen: true,
-        staleGenerationRejected
+        staleGenerationRejected,
+        malformedFrameRejected,
+        corruptedJournalLeftUntouched: sizeAfterFailedRecovery === sizeAfterCorruption
       };
     } finally {
       try { await request("close"); } catch {}
@@ -82,6 +99,7 @@ try {
   console.log("PASS: a new commit succeeds after tail repair.");
   console.log("PASS: stale generations are rejected.");
   console.log("PASS: latest committed generation survives close/reopen.");
+  console.log("PASS: malformed complete frame is rejected without truncating the journal.");
   console.log(JSON.stringify(result));
 } finally {
   await browser.close();
