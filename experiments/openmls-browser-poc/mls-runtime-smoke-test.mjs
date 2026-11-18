@@ -34,7 +34,7 @@ try {
         if (!request) return;
         pending.delete(data.id);
         if (data.ok) request.resolve(data);
-        else request.reject(Object.assign(new Error(data.error), { name: data.errorName }));
+        else request.reject(Object.assign(new Error(`${action}: ${data.error}`), { name: data.errorName }));
       });
       worker.addEventListener("error", event => {
         for (const request of pending.values()) request.reject(new Error(event.message || "MLS worker failed."));
