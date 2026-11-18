@@ -594,7 +594,8 @@ mod tests {
             .mls_group
             .create_message(bob_provider.as_ref(), &bob.keypair, b"stale epoch")
             .unwrap();
-        let mut stale_bob_bytes = mls_message_to_u8vec(&stale_bob_message).as_slice();
+        let stale_bob_serialized = mls_message_to_u8vec(&stale_bob_message);
+        let mut stale_bob_bytes = stale_bob_serialized.as_slice();
         let stale_bob_message = MlsMessageIn::tls_deserialize(&mut stale_bob_bytes).unwrap();
         match stale_bob_message.extract() {
             MlsMessageBodyIn::PublicMessage(public_message) => {
