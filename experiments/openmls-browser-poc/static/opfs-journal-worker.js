@@ -9,6 +9,9 @@ let handle = null;
 let activeName = null;
 
 function encodeFrame(type, generation, payload) {
+  if (!Number.isSafeInteger(generation) || generation < 1 || generation > 0xffffffff) {
+    throw new Error("Journal generation is outside the supported uint32 range.");
+  }
   const frame = new Uint8Array(HEADER + payload.byteLength);
   frame.set(MAGIC, 0);
   frame[4] = VERSION;
@@ -48,7 +51,7 @@ async function recoverFrames(bytes) {
   let offset = 0;
 
   while (offset < bytes.byteLength) {
-    if (bytes.byteLength - offset < HEADER) break; // incomplete trailing header
+    if (bytes.byteLength - offset < HEADER) break;
     const header = bytes.subarray(offset, offset + HEADER);
     if (!MAGIC.every((byte, i) => header[i] === byte) || header[4] !== VERSION) {
       throw new Error(`OPFS journal corruption at byte ${offset}.`);
@@ -57,8 +60,9 @@ async function recoverFrames(bytes) {
     const type = header[5];
     const generation = view.getUint32(6, false);
     const length = view.getUint32(10, false);
+    if (generation === 0) throw new Error("Invalid zero journal generation.");
     if (length > MAX_FRAME) throw new Error("OPFS journal frame exceeds the size limit.");
-    if (bytes.byteLength - offset - HEADER < length) break; // incomplete trailing payload
+    if (bytes.byteLength - offset - HEADER < length) break;
     const payload = bytes.slice(offset + HEADER, offset + HEADER + length);
     offset += HEADER + length;
 
@@ -78,9 +82,32 @@ async function recoverFrames(bytes) {
     }
   }
 
-  if (committed.size === 0) return { generation: null, bytes: null };
-  const generation = Math.max(...committed.keys());
-  return { generation, bytes: committed.get(generation) };
+  let generation = null;
+  for (const candidate of committed.keys()) {
+    if (generation === null || candidate > generation) generation = candidate;
+  }
+  return {
+    generation,
+    bytes: generation === null ? null : committed.get(generation),
+    validLength: offset,
+    hasIncompleteTail: offset !== bytes.byteLength
+  };
+}
+
+function truncateIncompleteTail(validLength) {
+  if (!Number.isSafeInteger(validLength) || validLength < 0 || validLength > handle.getSize()) {
+    throw new Error("Invalid journal recovery boundary.");
+  }
+  if (validLength !== handle.getSize()) {
+    handle.truncate(validLength);
+    handle.flush();
+  }
+}
+
+async function recoverAndRepair() {
+  const result = await recoverFrames(readAll());
+  if (result.hasIncompleteTail) truncateIncompleteTail(result.validLength);
+  return result;
 }
 
 self.onmessage = async ({ data }) => {
@@ -98,6 +125,10 @@ self.onmessage = async ({ data }) => {
     if (!handle) throw new Error("No OPFS journal is open.");
 
     if (action === "stage") {
+      const current = await recoverAndRepair();
+      if (current.generation !== null && generation <= current.generation) {
+        throw new Error("Staged journal generation must exceed the committed generation.");
+      }
       const payload = new Uint8Array(bytes);
       writeAll(encodeFrame(DATA, generation, payload));
       self.postMessage({ id, ok: true, staged: generation });
@@ -105,17 +136,18 @@ self.onmessage = async ({ data }) => {
     }
 
     if (action === "commit") {
-      const payload = new Uint8Array(bytes);
-      const current = await recoverFrames(readAll());
+      const current = await recoverAndRepair();
       if (current.generation !== null && generation <= current.generation) {
         throw new Error("Journal generation must increase monotonically.");
       }
+      const payload = new Uint8Array(bytes);
       writeAll(encodeFrame(DATA, generation, payload));
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload));
       writeAll(encodeFrame(COMMIT, generation, digest));
       const verified = await recoverFrames(readAll());
-      if (verified.generation !== generation || !verified.bytes.every((byte, i) => byte === payload[i]) ||
-          verified.bytes.byteLength !== payload.byteLength) {
+      if (verified.generation !== generation ||
+          verified.bytes.byteLength !== payload.byteLength ||
+          !verified.bytes.every((byte, i) => byte === payload[i])) {
         throw new Error("Committed journal generation failed read-back verification.");
       }
       self.postMessage({ id, ok: true, committed: generation });
@@ -123,11 +155,12 @@ self.onmessage = async ({ data }) => {
     }
 
     if (action === "recover") {
-      const result = await recoverFrames(readAll());
+      const result = await recoverAndRepair();
       const output = result.bytes;
       self.postMessage({
         id, ok: true, generation: result.generation,
-        bytes: output ? output.buffer : null
+        bytes: output ? output.buffer : null,
+        repairedIncompleteTail: result.hasIncompleteTail
       }, output ? [output.buffer] : []);
       return;
     }
