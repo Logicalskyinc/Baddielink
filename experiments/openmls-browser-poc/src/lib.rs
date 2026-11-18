@@ -82,6 +82,30 @@ impl Provider {
 impl Provider {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self { Self::default() }
+
+    /// Export raw OpenMLS storage bytes. The caller MUST encrypt these bytes
+    /// with an authenticated, device-bound key before writing them to storage.
+    /// This method is intended for the isolated persistence experiment.
+    pub fn export_snapshot_bytes(&self) -> Result<Vec<u8>, JsError> {
+        let values = self.storage.values.read()
+            .map_err(|_| JsError::new("MLS storage lock is poisoned."))?;
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&*values, &mut encoded)
+            .map_err(|e| JsError::new(&format!("MLS snapshot serialization failed: {e}")))?;
+        Ok(encoded)
+    }
+
+    /// Restore a provider from decrypted snapshot bytes. The caller must
+    /// authenticate and decrypt the snapshot before invoking this method.
+    pub fn from_snapshot_bytes(snapshot: &[u8]) -> Result<Provider, JsError> {
+        let values: std::collections::HashMap<Vec<u8>, Vec<u8>> =
+            ciborium::de::from_reader(snapshot)
+                .map_err(|e| JsError::new(&format!("MLS snapshot is invalid: {e}")))?;
+        let storage = MemoryStorage::default();
+        *storage.values.write()
+            .map_err(|_| JsError::new("MLS storage lock is poisoned."))? = values;
+        Ok(Provider { crypto: RustCrypto::default(), storage })
+    }
 }
 
 #[wasm_bindgen]
@@ -168,6 +192,15 @@ impl AddMessages {
 
 #[wasm_bindgen]
 impl Group {
+    /// Reload a previously persisted group from the provider's restored storage.
+    pub fn load(provider: &Provider, group_id: &str) -> Result<Group, JsError> {
+        let group_id = GroupId::from_slice(group_id.as_bytes());
+        let mls_group = MlsGroup::load(provider.storage(), &group_id)
+            .map_err(|e| JsError::new(&format!("MLS group load failed: {e}")))?
+            .ok_or_else(|| JsError::new("MLS group was not found in restored storage."))?;
+        Ok(Group { mls_group })
+    }
+
     pub fn create_new(provider: &Provider, founder: &Identity, group_id: &str) -> Result<Group, JsError> {
         let group_id_bytes = group_id.bytes().collect::<Vec<_>>();
 
