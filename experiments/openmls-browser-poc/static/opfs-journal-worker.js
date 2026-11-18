@@ -165,12 +165,16 @@ self.onmessage = async ({ data }) => {
       return;
     }
 
-    if (action === "append-torn-tail") {
+    if (action === "append-torn-tail" || action === "append-corrupt-frame") {
       const tail = new Uint8Array(bytes);
       const written = handle.write(tail, { at: handle.getSize() });
-      if (written !== tail.byteLength) throw new Error("Could not append complete test tail.");
+      if (written !== tail.byteLength) throw new Error("Could not append complete test bytes.");
       handle.flush();
-      self.postMessage({ id, ok: true, written });
+      self.postMessage({ id, ok: true, written, size: handle.getSize() });
+      return;
+    }
+    if (action === "stat") {
+      self.postMessage({ id, ok: true, size: handle.getSize() });
       return;
     }
 
