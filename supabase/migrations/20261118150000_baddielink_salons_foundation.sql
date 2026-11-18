@@ -124,7 +124,8 @@ with check (
 create policy memberships_select_self_or_active_peers on public.space_memberships
 for select to authenticated using (
   user_id = (select auth.uid())
-  or (select private.is_active_space_member(space_memberships.space_id))
+  or ((status = 'active') and (select private.is_active_space_member(space_memberships.space_id)))
+  or (select private.is_space_owner(space_memberships.space_id))
 );
 
 create policy memberships_insert_self_join on public.space_memberships
