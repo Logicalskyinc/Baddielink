@@ -50,6 +50,7 @@ jobs:
           wasm-pack build --target web --out-dir pkg --out-name openmls_wasm --locked
           cp static/index.html pkg/index.html
           cp static/mls-lock.js pkg/mls-lock.js
+          cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
 
       - name: Run native Rust tests
         run: cargo test --locked
@@ -74,6 +75,9 @@ jobs:
 
       - name: Verify MLS browser concurrency lock
         run: node concurrency-smoke-test.mjs
+
+      - name: Verify OPFS worker storage primitives
+        run: node opfs-storage-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
