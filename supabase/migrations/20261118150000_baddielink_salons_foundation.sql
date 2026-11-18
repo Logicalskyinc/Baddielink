@@ -135,6 +135,8 @@ for insert to authenticated with check (
     and s.visibility = 'public'
     and ((s.join_policy = 'open' and status = 'active')
       or (s.join_policy = 'approval' and status = 'pending')))
+  and exists (select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.moderation_status = 'approved')
   and (select private.is_adult_declared((select auth.uid())))
 );
 
@@ -142,6 +144,9 @@ create policy memberships_owner_invite on public.space_memberships
 for insert to authenticated with check (
   user_id <> (select auth.uid()) and role = 'member' and status = 'active'
   and (select private.is_space_owner(space_id))
+  and exists (select 1 from public.profiles p
+    where p.id = space_memberships.user_id and p.moderation_status = 'approved')
+  and (select private.is_adult_declared(space_memberships.user_id))
 );
 
 create policy memberships_owner_manage on public.space_memberships
@@ -152,6 +157,11 @@ using (
 with check (
   role in ('member', 'moderator') and status in ('active', 'removed', 'banned')
   and (select private.is_space_owner(space_memberships.space_id))
+  and (status <> 'active' or (
+    exists (select 1 from public.profiles p
+      where p.id = space_memberships.user_id and p.moderation_status = 'approved')
+    and (select private.is_adult_declared(space_memberships.user_id))
+  ))
 );
 
 create policy memberships_self_leave on public.space_memberships
@@ -174,4 +184,7 @@ with check (
     and s.visibility = 'public'
     and ((s.join_policy = 'open' and status = 'active')
       or (s.join_policy = 'approval' and status = 'pending')))
+  and exists (select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.moderation_status = 'approved')
+  and (select private.is_adult_declared((select auth.uid())))
 );
