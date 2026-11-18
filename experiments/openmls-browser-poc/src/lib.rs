@@ -247,20 +247,22 @@ impl Group {
         sender: &Identity,
         new_member: &KeyPackage,
     ) -> Result<AddMessages, JsError> {
-        let (proposal_msg, _proposal_ref) = self
-            .mls_group
-            .propose_add_member(provider.as_ref(), &sender.keypair, &new_member.0)
-            .map_err(|e| JsError::new(&format!("propose_add_member failed: {e}")))?;
-
+        // Use OpenMLS' atomic membership API. A proposal created with
+        // propose_add_member() is not automatically queued locally or delivered
+        // to existing members. A Commit that references that proposal would
+        // therefore be rejected by recipients that never received it.
         let (commit_msg, welcome_msg, _group_info) = self
             .mls_group
-            .commit_to_pending_proposals(provider.as_ref(), &sender.keypair)
-            .map_err(|e| JsError::new(&format!("commit_to_pending_proposals failed: {e}")))?;
+            .add_members(
+                provider.as_ref(),
+                &sender.keypair,
+                std::slice::from_ref(&new_member.0),
+            )
+            .map_err(|e| JsError::new(&format!("add_members failed: {e}")))?;
 
-        let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
-
-        let proposal = mls_message_to_uint8array(&proposal_msg)?;
+        let proposal = Uint8Array::new_with_length(0);
         let commit = mls_message_to_uint8array(&commit_msg)?;
+        let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
         let welcome = mls_message_to_uint8array(&welcome_msg)?;
 
         Ok(AddMessages {
