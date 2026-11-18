@@ -185,12 +185,13 @@
     if (loading) return;
     client = window.baddielinkSupabase;
     if (!client) return;
-    const { data: sessionData } = await client.auth.getSession();
-    userId = sessionData?.session?.user?.id;
-    if (!userId) return;
     loading = true;
-    status("Chargement des salons…");
     try {
+      const { data: sessionData, error: sessionError } = await client.auth.getSession();
+      if (sessionError) throw sessionError;
+      userId = sessionData?.session?.user?.id;
+      if (!userId) return;
+      status("Chargement des salons…");
       const [{ data: rows, error: spacesError }, { data: ownRows, error: membershipError }] = await Promise.all([
         client.from("spaces").select("id,name,slug,description,city,visibility,join_policy,owner_id,created_at")
           .eq("space_type", "salon").eq("status", "active").order("created_at", { ascending: false }).limit(100),
