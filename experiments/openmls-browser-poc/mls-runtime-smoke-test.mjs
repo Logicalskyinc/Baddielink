@@ -92,7 +92,7 @@ try {
         welcome: added.welcome,
         ratchetTree: added.ratchetTree
       });
-      if (!joined.joined || joined.generation !== 2) {
+      if (!joined.joined || joined.generation !== 3) {
         throw new Error("Recipient did not join and commit the MLS group.");
       }
 
@@ -105,7 +105,7 @@ try {
       const firstReceived = await bobWorker.request("receive", {
         ciphertext: firstSent.ciphertext
       });
-      if (decode(firstReceived.plaintext) !== "hello from founder" || firstReceived.generation !== 3) {
+      if (decode(firstReceived.plaintext) !== "hello from founder" || firstReceived.generation !== 4) {
         throw new Error("Recipient failed to decrypt and commit first group message.");
       }
 
@@ -126,7 +126,7 @@ try {
         ciphertext: secondSent.ciphertext
       });
       if (decode(secondReceived.plaintext) !== "message after founder restart" ||
-          secondReceived.generation !== 4) {
+          secondReceived.generation !== 5) {
         throw new Error("Recipient could not decrypt the message sent after founder restart.");
       }
 
