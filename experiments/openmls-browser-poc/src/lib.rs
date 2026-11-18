@@ -563,13 +563,24 @@ mod tests {
             .merge_pending_commit(&mut alice_provider)
             .map_err(js_error_to_string)
             .unwrap();
-        bob_group
-            .process_message(&mut bob_provider, &removal_commit)
-            .map_err(js_error_to_string)
-            .unwrap();
+        // A removed member cannot process the removal Commit because it does
+        // not receive the new epoch's path secret. Exercise OpenMLS directly:
+        // converting this expected native error into JsError invokes wasm-bindgen.
+        let mut removal_commit_bytes = removal_commit.as_slice();
+        let removal_message =
+            MlsMessageIn::tls_deserialize(&mut removal_commit_bytes).unwrap();
+        match removal_message.extract() {
+            MlsMessageBodyIn::PublicMessage(public_message) => {
+                let result = bob_group
+                    .mls_group
+                    .process_message(bob_provider.as_ref(), public_message);
+                assert!(result.is_err(), "removed member unexpectedly accepted the removal Commit");
+            }
+            other => panic!("expected a public removal Commit, got {other:?}"),
+        }
 
         assert_ne!(alice_group.mls_group.epoch(), previous_epoch);
-        assert!(!bob_group.is_active());
+        assert_eq!(bob_group.mls_group.epoch(), previous_epoch);
 
         let current_export = alice_group
             .export_key(&alice_provider, "removal_check", &[0x41], 32)
@@ -577,18 +588,40 @@ mod tests {
             .unwrap();
         assert_ne!(previous_export, current_export);
 
-        // An evicted member cannot create fresh application messages or process
-        // messages encrypted under the post-removal epoch.
-        assert!(bob_group
-            .create_message(&bob_provider, &bob, b"after removal")
-            .is_err());
+        // Bob can still construct a message in his stale local epoch, but
+        // Alice must reject it after advancing to the new epoch.
+        let stale_bob_message = bob_group
+            .mls_group
+            .create_message(bob_provider.as_ref(), &bob.keypair, b"stale epoch")
+            .unwrap();
+        let mut stale_bob_bytes = mls_message_to_u8vec(&stale_bob_message).as_slice();
+        let stale_bob_message = MlsMessageIn::tls_deserialize(&mut stale_bob_bytes).unwrap();
+        match stale_bob_message.extract() {
+            MlsMessageBodyIn::PublicMessage(public_message) => {
+                let result = alice_group
+                    .mls_group
+                    .process_message(alice_provider.as_ref(), public_message);
+                assert!(result.is_err(), "current epoch accepted a stale-epoch message");
+            }
+            other => panic!("expected a public stale-epoch message, got {other:?}"),
+        }
+
         let post_removal_message = alice_group
             .create_message(&alice_provider, &alice, b"new epoch only")
             .map_err(js_error_to_string)
             .unwrap();
-        assert!(bob_group
-            .process_message(&mut bob_provider, &post_removal_message)
-            .is_err());
+        let mut post_removal_bytes = post_removal_message.as_slice();
+        let post_removal_message =
+            MlsMessageIn::tls_deserialize(&mut post_removal_bytes).unwrap();
+        match post_removal_message.extract() {
+            MlsMessageBodyIn::PublicMessage(public_message) => {
+                let result = bob_group
+                    .mls_group
+                    .process_message(bob_provider.as_ref(), public_message);
+                assert!(result.is_err(), "removed member accepted a post-removal message");
+            }
+            other => panic!("expected a public post-removal message, got {other:?}"),
+        }
     }
 
     #[test]
