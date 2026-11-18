@@ -6,8 +6,8 @@ use openmls::{
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut},
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     key_packages::KeyPackage as OpenMlsKeyPackage,
-    prelude::SignatureScheme,
-    treesync::{LeafNodeIndex, RatchetTreeIn},
+    prelude::{LeafNodeIndex, SignatureScheme},
+    treesync::RatchetTreeIn,
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
