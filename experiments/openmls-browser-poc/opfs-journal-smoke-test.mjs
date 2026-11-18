@@ -35,14 +35,15 @@ try {
 
       await request("append-torn-tail", { bytes: new Uint8Array([0x42, 0x4c, 0x4a]).buffer });
       const afterTornTail = await request("recover");
-      if (afterTornTail.generation !== 1 || text(afterTornTail.bytes) !== "checkpoint-one") {
-        throw new Error("Recovery did not ignore an incomplete trailing frame.");
+      if (afterTornTail.generation !== 1 || text(afterTornTail.bytes) !== "checkpoint-one" ||
+          !afterTornTail.repairedIncompleteTail) {
+        throw new Error("Recovery did not detect and repair the incomplete trailing frame.");
       }
 
       await request("commit", { generation: 3, bytes: bytes("checkpoint-three").buffer });
       const final = await request("recover");
       if (final.generation !== 3 || text(final.bytes) !== "checkpoint-three") {
-        throw new Error("Latest committed checkpoint did not recover.");
+        throw new Error("A new committed generation could not be written after tail repair.");
       }
 
       await request("close");
@@ -51,7 +52,23 @@ try {
       if (reopened.generation !== 3 || text(reopened.bytes) !== "checkpoint-three") {
         throw new Error("Committed checkpoint did not survive close/reopen.");
       }
-      return { uncommittedStageIgnored: true, tornTailIgnored: true, latestGeneration: reopened.generation, persistedAfterReopen: true };
+
+      let staleGenerationRejected = false;
+      try {
+        await request("commit", { generation: 2, bytes: bytes("stale").buffer });
+      } catch (error) {
+        staleGenerationRejected = /increase monotonically/.test(error.message);
+      }
+      if (!staleGenerationRejected) throw new Error("A stale generation was accepted.");
+
+      return {
+        uncommittedStageIgnored: true,
+        tornTailDetectedAndRepaired: true,
+        commitAfterRepair: true,
+        latestGeneration: reopened.generation,
+        persistedAfterReopen: true,
+        staleGenerationRejected
+      };
     } finally {
       try { await request("close"); } catch {}
       worker.terminate();
@@ -60,10 +77,11 @@ try {
     }
   });
 
-  console.log("PASS: uncommitted journal data is ignored during recovery.");
-  console.log("PASS: incomplete trailing frame is ignored.");
-  console.log("PASS: latest committed generation is restored.");
-  console.log("PASS: committed generation survives close/reopen.");
+  console.log("PASS: uncommitted journal data is ignored.");
+  console.log("PASS: incomplete trailing frame is detected and truncated.");
+  console.log("PASS: a new commit succeeds after tail repair.");
+  console.log("PASS: stale generations are rejected.");
+  console.log("PASS: latest committed generation survives close/reopen.");
   console.log(JSON.stringify(result));
 } finally {
   await browser.close();
