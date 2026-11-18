@@ -1,48 +1,50 @@
 # E2EE client-state persistence investigation
 
-**Status:** Design investigation. No persistence implementation is approved or wired into the application.
+**Status:** Investigation only. The browser snapshot harness is experimental; no production persistence implementation is approved or wired into BaddieLink.
 
-## Current verified state
+## Current implementation and evidence
 
-- The browser proof of concept wraps `OpenMlsRustCrypto`.
-- `OpenMlsRustCrypto` constructs and owns an in-memory `MemoryStorage`; its storage field is private.
-- OpenMLS writes group state and key material through its `StorageProvider` abstraction. A group can later be restored with `MlsGroup::load` when the same provider contains its complete state.
-- The prototype's current provider is process-local, so a browser reload loses the MLS state.
-- The current experiment has no account/device-bound storage, encryption-at-rest, recovery, or browser reload test.
+- The Rust `Provider` implements `OpenMlsProvider` and owns `RustCrypto` plus OpenMLS `MemoryStorage`.
+- The provider exposes snapshot export/import for the isolated experiment. This serializes the complete in-memory storage map; it does not make the underlying storage provider persistent.
+- The browser harness wraps snapshot bytes with AES-256-GCM and stores the encrypted checkpoint and non-extractable Web Crypto key in IndexedDB.
+- Chromium CI run #29 passed tests for page reload and group restoration, queued-message decryption, tampered ciphertext rejection, wrong-key rejection, account/device AAD mismatch rejection, and aborted IndexedDB transaction preservation.
+- A separate Web Locks helper and contention smoke test were added afterward. They are not considered verified until their CI run passes.
+- The current lock helper is not yet called by every MLS operation. It coordinates same-origin tabs only, not independent devices or browser profiles.
 
-## Constraints that affect the design
+## Security constraints
 
-1. **The storage provider is security-critical.** OpenMLS assumes persisted state is trusted. An attacker able to modify it can violate invariants that OpenMLS does not re-check on load. The persistence layer must provide authenticated integrity, not just encryption.
-2. **Deletion semantics matter.** OpenMLS deletes consumed key material to support forward secrecy. A storage backend must honor delete operations and must not retain stale copies or backups that defeat deletion.
-3. **The synchronous API is a browser integration constraint.** The default OpenMLS storage trait is synchronous. IndexedDB is asynchronous. The optional OpenMLS async storage mode must be evaluated on `wasm32` before adopting IndexedDB; its future and cancellation requirements need explicit handling.
-4. **Browser storage is not automatically a secure vault.** IndexedDB/localStorage alone do not protect key material from same-origin script execution, browser-profile compromise, or unsafe backups. A non-extractable WebCrypto key helps constrain raw-key export but does not prevent same-origin code from asking the browser to use it.
-5. **No plaintext fallback.** If storage cannot be authenticated, decrypted, or loaded completely, the client must fail closed and require recovery/rejoin. It must not silently create a new group state under the same conversation identity.
+1. **Storage integrity is critical.** OpenMLS assumes persisted state is trusted. A backend must authenticate records and reject tampering, incomplete state, unsupported versions, and account/device/group mismatches.
+2. **Deletion semantics matter.** OpenMLS deletes consumed key material to support forward secrecy. A backend must honor deletes and avoid stale copies or backup paths that restore deleted secrets.
+3. **IndexedDB is asynchronous.** The default storage API is synchronous. Evaluate OpenMLS async storage on the actual WASM target before choosing an IndexedDB adapter. Define cancellation, transaction, and rollback behavior explicitly.
+4. **Browser storage is not a secure vault.** A non-extractable Web Crypto key limits raw-key export but does not stop same-origin JavaScript from invoking cryptographic operations. XSS and compromised browser profiles remain in scope.
+5. **Fail closed.** If a record cannot be authenticated, decrypted, or loaded completely, discard the in-memory group and recover from the last committed checkpoint or require rejoin. Never silently create a new group state under an existing conversation identity.
+6. **No server-side private state.** MLS private state and device storage keys remain on the device. Do not upload provider snapshots or private keys to Supabase.
 
-## Candidate architecture to evaluate
+## Candidate implementation direction
 
-- Replace the opaque `OpenMlsRustCrypto` wrapper with a provider that explicitly owns the RustCrypto implementation and a storage provider, while continuing to implement the OpenMLS provider trait.
-- Keep MLS state local to each registered device. Never upload MLS private state or storage snapshots to Supabase.
-- Evaluate an IndexedDB-backed storage provider using OpenMLS's async feature first. If that is not viable on the target WASM/browser toolchain, evaluate a narrowly scoped synchronous adapter only after its transaction, quota, integrity, and deletion behavior are demonstrated.
-- Authenticate and encrypt persisted records with a per-device storage key protected by a browser/platform credential mechanism. The key lifecycle, same-origin threat model, and recovery behavior must be explicit before real keys are stored.
-- Version the local storage schema and bind records to the authenticated account, device identifier, MLS group identifier, and storage format version.
-- Serialize storage operations per device/group. An interrupted or failed MLS operation must not leave memory and persisted state diverged; discard the in-memory group and reload from the last committed transaction.
-- Do not persist plaintext chat messages as part of the MLS state store. Message history is a separate encrypted application-data layer.
+- Keep the existing snapshot harness as a test fixture, not the production backend.
+- Prototype OpenMLS's async storage mode with a minimal WASM-compatible storage implementation. Confirm that required trait operations and dependencies compile under the current toolchain.
+- Store records per account/device/group with schema version, monotonically increasing revision, authenticated metadata, and encrypted value.
+- Use an IndexedDB transaction to atomically commit the full state transition. Compare the expected revision before writing; reject stale writers.
+- Serialize all state-changing operations per device/group. Web Locks may coordinate same-origin tabs, but correctness must also rely on storage revision checks because locks do not span devices or browser profiles.
+- On failed/interrupted MLS operations, do not continue using the mutated in-memory group. Reload from the last successfully committed transaction.
+- Verify deletion and rotation remove obsolete key material from all reachable storage records. Do not claim secure deletion from browser storage without examining IndexedDB/backup semantics.
+- Keep message history separate from the MLS state store and encrypt message content and attachments client-side.
 
 ## Required prototype tests
 
-1. Create two independent providers and establish a group.
-2. Persist the complete provider state using the candidate backend.
-3. Destroy the in-memory provider and group objects.
-4. Recreate the provider from persisted, authenticated state and load the group with `MlsGroup::load`.
-5. Verify the restored participant can decrypt a message from another participant.
-6. Verify a tampered record, wrong device key, wrong account binding, unsupported storage version, and incomplete snapshot all fail closed.
-7. Verify deleting/rotating MLS secrets actually removes the corresponding stored values and that no snapshot/backup path restores deleted secrets.
-8. Simulate interrupted writes and quota/storage errors; verify no partial state is treated as valid.
-9. Repeat in Chromium, Firefox, and iOS Safari before selecting the production backend.
+1. Build the async storage provider for `wasm32-unknown-unknown`.
+2. Create two independent providers, establish a group, persist all required records, destroy in-memory objects, then restore and decrypt a queued message.
+3. Reject tampered records, wrong keys, wrong account/device/group binding, unsupported versions, missing records, and stale revisions.
+4. Race two tabs attempting to update the same group. Exactly one revision transition must commit; the other must reload/retry or fail safely.
+5. Simulate transaction abort, quota exhaustion, browser termination, and operation cancellation. No partial state may be treated as committed.
+6. Verify consumed key material is deleted and cannot be recovered from stale snapshots.
+7. Repeat in Chromium, Firefox, and iOS Safari.
+8. Test separate devices, device revocation, and MLS epoch rotation.
 
 ## Immediate next step
 
-Build a small provider/storage spike on the isolated branch. First confirm whether the OpenMLS async storage trait and its dependencies compile and run under the current WASM target. Do not add Supabase tables, production feature flags, or production UI integration during this investigation.
+Validate the newly added same-origin Web Locks contention test. Then prototype the OpenMLS async storage trait on WASM before committing to an IndexedDB storage-provider design.
 
 ## References
 
