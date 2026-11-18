@@ -254,6 +254,37 @@ try {
         throw new Error("Remaining member did not process and persist the removal Commit.");
       }
 
+      // The same removal Commit must not be replayable after it has been
+      // applied. A duplicate must fail without advancing the recipient state.
+      let removalReplayRejected = false;
+      try {
+        await charlieWorker.request("receive", { ciphertext: removal.commit });
+      } catch {
+        removalReplayRejected = true;
+      }
+      if (!removalReplayRejected) {
+        throw new Error("Remaining member accepted a replayed removal Commit.");
+      }
+
+      // Both remaining participants must recover the new epoch after worker
+      // termination, not merely continue using their in-memory state.
+      aliceWorker.terminate();
+      aliceWorker = startRuntime();
+      const aliceAfterRemovalRestart = await aliceWorker.request("initialize", aliceArgs);
+      if (!aliceAfterRemovalRestart.ready || !aliceAfterRemovalRestart.restored ||
+          aliceAfterRemovalRestart.generation !== 6) {
+        throw new Error("Founder did not restore the committed post-removal epoch.");
+      }
+
+      charlieWorker.terminate();
+      charlieWorker = startRuntime();
+      const charlieAfterRemovalRestart = await charlieWorker.request("initialize", charlieArgs);
+      if (!charlieAfterRemovalRestart.ready || !charlieAfterRemovalRestart.restored ||
+          charlieAfterRemovalRestart.generation !== 6 ||
+          charlieAfterRemovalRestart.groupId !== groupId) {
+        throw new Error("Remaining member did not restore the authenticated post-removal epoch.");
+      }
+
       // A removed participant may still hold a stale local epoch and create
       // ciphertext locally. The remaining group must reject it.
       const staleBobMessage = await bobWorker.request("send", {
@@ -316,6 +347,9 @@ try {
         plaintextNotPresentInCiphertext: true,
         memberRemovalCommitted: true,
         remainingMemberProcessedRemovalCommit: true,
+        replayedRemovalCommitRejected: true,
+        founderRestartRestoredPostRemovalEpoch: true,
+        remainingMemberRestartRestoredPostRemovalEpoch: true,
         staleEpochMessageRejected: true,
         postRemovalEpochMessageDecrypted: true,
         removedMemberRejectedNewEpoch: true,
