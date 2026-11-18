@@ -24,7 +24,7 @@ impl Identity {
         public_key: &[u8],
     ) -> Result<Identity, JsError> {
         let keypair = SignatureKeyPair::read(
-            provider.storage(),
+            &provider.storage,
             public_key,
             SignatureScheme::ED25519,
         )
