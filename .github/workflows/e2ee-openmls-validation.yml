@@ -52,6 +52,7 @@ jobs:
           cp static/mls-lock.js pkg/mls-lock.js
           cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
           cp static/opfs-journal-worker.js pkg/opfs-journal-worker.js
+          cp static/opfs-wasm-bridge-worker.js pkg/opfs-wasm-bridge-worker.js
 
       - name: Run native Rust tests
         run: cargo test --locked
@@ -82,6 +83,9 @@ jobs:
 
       - name: Verify OPFS journal recovery
         run: node opfs-journal-smoke-test.mjs
+
+      - name: Verify synchronous OPFS bridge from WASM
+        run: node opfs-wasm-bridge-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
