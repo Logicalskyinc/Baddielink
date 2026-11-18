@@ -61,6 +61,37 @@ try {
       }
       if (!staleGenerationRejected) throw new Error("A stale generation was accepted.");
 
+      // Failures before the commit marker must leave generation 3 authoritative.
+      for (const faultAt of ["before-data-write", "after-data-flush", "before-commit-marker"]) {
+        let rejected = false;
+        try {
+          await request("commit", { generation: 4, bytes: bytes("candidate-four").buffer, faultAt });
+        } catch (error) {
+          rejected = /Injected failure/.test(error.message) && error.commitMayHaveSucceeded === false;
+        }
+        if (!rejected) throw new Error(`Failure injection did not fail safely at ${faultAt}.`);
+        const recovered = await request("recover");
+        if (recovered.generation !== 3 || text(recovered.bytes) !== "checkpoint-three") {
+          throw new Error(`Uncommitted candidate became visible after ${faultAt}.`);
+        }
+      }
+
+      // Once the commit marker is flushed, an acknowledgement/read-back failure is
+      // ambiguous to the caller: recovery must reveal whether generation 4 committed.
+      for (const faultAt of ["after-commit-marker", "during-readback"]) {
+        let rejected = false;
+        try {
+          await request("commit", { generation: 4, bytes: bytes("candidate-four").buffer, faultAt });
+        } catch (error) {
+          rejected = /Injected failure/.test(error.message) && error.commitMayHaveSucceeded === true;
+        }
+        if (!rejected) throw new Error(`Post-marker failure was not reported as ambiguous at ${faultAt}.`);
+        const recovered = await request("recover");
+        if (recovered.generation !== 4 || text(recovered.bytes) !== "candidate-four") {
+          throw new Error(`Committed generation could not be reconciled after ${faultAt}.`);
+        }
+      }
+
       const sizeBeforeCorruption = (await request("stat")).size;
       await request("append-corrupt-frame", { bytes: new Uint8Array(14).fill(0).buffer });
       const sizeAfterCorruption = (await request("stat")).size;
@@ -99,6 +130,8 @@ try {
   console.log("PASS: a new commit succeeds after tail repair.");
   console.log("PASS: stale generations are rejected.");
   console.log("PASS: latest committed generation survives close/reopen.");
+  console.log("PASS: pre-marker failures preserve the previous committed generation.");
+  console.log("PASS: post-marker failures report ambiguous outcome and reconcile from recovery.");
   console.log("PASS: malformed complete frame is rejected without truncating the journal.");
   console.log(JSON.stringify(result));
 } finally {
