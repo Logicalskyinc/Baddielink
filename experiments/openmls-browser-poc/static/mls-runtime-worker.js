@@ -372,7 +372,7 @@ async function addMember(data) {
     candidateProvider, candidateIdentity, keyPackage
   );
   candidateGroup.merge_pending_commit(candidateProvider);
-  const welcome = new Uint8Array(addMessages.welcome());
+  const welcome = new Uint8Array(addMessages.welcome);
   const ratchetTree = new Uint8Array(candidateGroup.export_ratchet_tree().to_bytes());
   const committedGeneration = await persistCandidate(
     candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
