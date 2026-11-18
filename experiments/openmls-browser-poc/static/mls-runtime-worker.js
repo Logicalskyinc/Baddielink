@@ -310,7 +310,7 @@ async function sendMessage(data) {
     plaintext
   );
   const candidateSnapshot = candidate.snapshot_bytes();
-  const envelope = await encryptSnapshot(candidateSnapshot);
+  const envelope = await encryptSnapshot(candidateSnapshot, metadata.groupId);
   const committedGeneration = await commitEnvelope(envelope, data.faultAt || null);
 
   // No ciphertext leaves this worker until OPFS recovery confirms the exact
