@@ -322,11 +322,13 @@ impl Group {
     }
 
     fn native_join(provider: &Provider, mut welcome: &[u8], ratchet_tree: RatchetTree) -> Group {
-        let welcome = MlsMessageIn::tls_deserialize(&mut welcome)
-            .unwrap()
+        let welcome = match MlsMessageIn::tls_deserialize(&mut welcome)
+            .expect("could not deserialize Welcome message")
             .extract()
-            .into_welcome()
-            .expect("expected a message of type welcome");
+        {
+            MlsMessageBodyIn::Welcome(welcome) => welcome,
+            _ => panic!("expected a message of type welcome"),
+        };
         let config = MlsGroupJoinConfig::builder().build();
         let mls_group = StagedWelcome::new_from_welcome(
             provider.as_ref(),
