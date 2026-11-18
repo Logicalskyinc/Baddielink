@@ -16,7 +16,7 @@ try {
         if (data.id !== id) return;
         worker.removeEventListener("message", onMessage);
         if (data.ok) resolve(data);
-        else reject(Object.assign(new Error(data.error), { name: data.errorName }));
+        else reject(Object.assign(new Error(data.error), { name: data.errorName, commitMayHaveSucceeded: data.commitMayHaveSucceeded }));
       };
       worker.addEventListener("message", onMessage);
       worker.postMessage({ id, action, ...payload });
@@ -78,16 +78,19 @@ try {
 
       // Once the commit marker is flushed, an acknowledgement/read-back failure is
       // ambiguous to the caller: recovery must reveal whether generation 4 committed.
+      let postMarkerGeneration = 4;
       for (const faultAt of ["after-commit-marker", "during-readback"]) {
+        const generation = postMarkerGeneration++;
+        const payload = `candidate-${generation}`;
         let rejected = false;
         try {
-          await request("commit", { generation: 4, bytes: bytes("candidate-four").buffer, faultAt });
+          await request("commit", { generation, bytes: bytes(payload).buffer, faultAt });
         } catch (error) {
           rejected = /Injected failure/.test(error.message) && error.commitMayHaveSucceeded === true;
         }
         if (!rejected) throw new Error(`Post-marker failure was not reported as ambiguous at ${faultAt}.`);
         const recovered = await request("recover");
-        if (recovered.generation !== 4 || text(recovered.bytes) !== "candidate-four") {
+        if (recovered.generation !== generation || text(recovered.bytes) !== payload) {
           throw new Error(`Committed generation could not be reconciled after ${faultAt}.`);
         }
       }
