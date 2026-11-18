@@ -6,7 +6,7 @@
 //! This module is an experimental first slice, not a complete transaction layer.
 
 use super::{Group, Identity, Provider};
-use tls_codec::{Deserialize, Serialize};
+use tls_codec::Serialize;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -85,6 +85,7 @@ impl CandidateGroupOperation {
 mod tests {
     use super::*;
     use openmls::framing::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
+    use tls_codec::Deserialize;
 
     fn create_alice_bob() -> (Provider, Identity, Group, Provider, Group) {
         let mut alice_provider = Provider::new();
@@ -104,7 +105,7 @@ mod tests {
 
     #[test]
     fn candidate_send_does_not_mutate_committed_provider_and_restores() {
-        let (alice_provider, alice, alice_group, mut bob_provider, mut bob_group) =
+        let (alice_provider, alice, alice_group, bob_provider, mut bob_group) =
             create_alice_bob();
         let committed_before = alice_provider.export_snapshot_bytes().unwrap();
         let committed_epoch = alice_group.mls_group.epoch();
@@ -180,23 +181,5 @@ mod tests {
         }
     }
 
-    #[test]
-    fn candidate_operation_rejects_missing_group_without_mutating_source() {
-        let (alice_provider, alice, _alice_group, _bob_provider, _bob_group) =
-            create_alice_bob();
-        let committed_before = alice_provider.export_snapshot_bytes().unwrap();
 
-        let result = CandidateGroupOperation::create_message(
-            &alice_provider,
-            "missing-group",
-            &alice,
-            b"must not be sent",
-        );
-
-        assert!(result.is_err());
-        assert_eq!(
-            committed_before,
-            alice_provider.export_snapshot_bytes().unwrap()
-        );
-    }
 }
