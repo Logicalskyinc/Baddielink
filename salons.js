@@ -112,6 +112,14 @@
         const item = node("div", "salon-member-row");
         const identity = node("span", "", row.user_id === userId ? "Vous" : "Membre " + row.user_id.slice(0, 8));
         item.append(identity, node("span", "salon-status-pill", row.role === "owner" ? "Propriétaire" : row.role === "moderator" ? "Modérateur" : "Membre"));
+        if (isOwner && row.user_id !== userId && row.role !== "owner") {
+          const remove = node("button", "button button-outline", "Retirer");
+          remove.type = "button";
+          remove.addEventListener("click", () => {
+            if (window.confirm("Retirer ce membre du salon ?")) updateMembership(space.id, row.user_id, { status: "removed" });
+          });
+          item.append(remove);
+        }
         list.append(item);
       });
       memberSection.append(list);
