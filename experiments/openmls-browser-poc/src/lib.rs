@@ -7,7 +7,7 @@ use openmls::{
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     key_packages::KeyPackage as OpenMlsKeyPackage,
     prelude::SignatureScheme,
-    treesync::RatchetTreeIn,
+    treesync::{LeafNodeIndex, RatchetTreeIn},
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -201,6 +201,28 @@ impl Group {
         })
     }
 
+    /// Remove a member by MLS leaf index and return the serialized Commit.
+    /// The caller must distribute the Commit to remaining members and merge it locally.
+    pub fn remove_member(
+        &mut self,
+        provider: &Provider,
+        sender: &Identity,
+        member_index: u32,
+    ) -> Result<Vec<u8>, JsError> {
+        let (commit, _welcome, _group_info) = self.mls_group.remove_members(
+            &provider.0,
+            &sender.keypair,
+            &[LeafNodeIndex::new(member_index)],
+        )?;
+        let mut serialized = Vec::new();
+        commit.tls_serialize(&mut serialized)?;
+        Ok(serialized)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.mls_group.is_active()
+    }
+
     pub fn merge_pending_commit(&mut self, provider: &mut Provider) -> Result<(), JsError> {
         self.mls_group
             .merge_pending_commit(provider.as_mut())
@@ -324,6 +346,22 @@ impl Group {
             commit,
             welcome,
         })
+    }
+
+    fn native_remove_member(
+        &mut self,
+        provider: &Provider,
+        sender: &Identity,
+        member_index: LeafNodeIndex,
+    ) -> Result<Vec<u8>, JsError> {
+        let (commit, _welcome, _group_info) = self.mls_group.remove_members(
+            &provider.0,
+            &sender.keypair,
+            &[member_index],
+        )?;
+        let mut serialized = Vec::new();
+        commit.tls_serialize(&mut serialized)?;
+        Ok(serialized)
     }
 
     fn native_join(provider: &Provider, mut welcome: &[u8], ratchet_tree: RatchetTree) -> Group {
@@ -495,6 +533,62 @@ mod tests {
             .unwrap();
 
         assert_eq!(bob_exported_key, alice_exported_key);
+    }
+
+    #[test]
+    fn remove_member_rotates_epoch_and_evicts_removed_member() {
+        let (
+            mut alice_provider,
+            alice,
+            mut alice_group,
+            mut bob_provider,
+            bob,
+            mut bob_group,
+        ) = create_group_alice_and_bob();
+
+        let previous_epoch = alice_group.mls_group.epoch();
+        let previous_export = alice_group
+            .export_key(&alice_provider, "removal_check", &[0x41], 32)
+            .map_err(js_error_to_string)
+            .unwrap();
+
+        // Bob's own leaf index is the index Alice must remove from this group.
+        let bob_leaf_index = bob_group.mls_group.own_leaf_index();
+        let removal_commit = alice_group
+            .native_remove_member(&alice_provider, &alice, bob_leaf_index)
+            .map_err(js_error_to_string)
+            .unwrap();
+
+        alice_group
+            .merge_pending_commit(&mut alice_provider)
+            .map_err(js_error_to_string)
+            .unwrap();
+        bob_group
+            .process_message(&mut bob_provider, &removal_commit)
+            .map_err(js_error_to_string)
+            .unwrap();
+
+        assert_ne!(alice_group.mls_group.epoch(), previous_epoch);
+        assert!(!bob_group.is_active());
+
+        let current_export = alice_group
+            .export_key(&alice_provider, "removal_check", &[0x41], 32)
+            .map_err(js_error_to_string)
+            .unwrap();
+        assert_ne!(previous_export, current_export);
+
+        // An evicted member cannot create fresh application messages or process
+        // messages encrypted under the post-removal epoch.
+        assert!(bob_group
+            .create_message(&bob_provider, &bob, b"after removal")
+            .is_err());
+        let post_removal_message = alice_group
+            .create_message(&alice_provider, &alice, b"new epoch only")
+            .map_err(js_error_to_string)
+            .unwrap();
+        assert!(bob_group
+            .process_message(&mut bob_provider, &post_removal_message)
+            .is_err());
     }
 
     #[test]
