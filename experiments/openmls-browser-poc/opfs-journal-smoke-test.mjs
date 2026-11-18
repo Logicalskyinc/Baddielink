@@ -76,10 +76,10 @@ try {
         }
       }
 
-      // Once the commit marker is flushed, an acknowledgement/read-back failure is
-      // ambiguous to the caller: recovery must reveal whether generation 4 committed.
+      // Any failure at or after marker publication begins is conservatively
+      // ambiguous, even if recovery proves the marker was not committed.
       let postMarkerGeneration = 4;
-      for (const faultAt of ["after-commit-marker", "during-readback"]) {
+      for (const faultAt of ["before-commit-marker-write", "after-commit-marker", "during-readback"]) {
         const generation = postMarkerGeneration++;
         const payload = `candidate-${generation}`;
         let rejected = false;
