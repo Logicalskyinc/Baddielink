@@ -626,6 +626,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_replayed_application_message() {
+        let (_alice_provider, alice, mut alice_group, mut bob_provider, _bob, mut bob_group) =
+            create_group_alice_and_bob();
+
+        let plaintext = b"replay protection check";
+        let encrypted = alice_group
+            .create_message(&_alice_provider, &alice, plaintext)
+            .map_err(js_error_to_string)
+            .unwrap();
+
+        let first_delivery = bob_group
+            .process_message(&mut bob_provider, &encrypted)
+            .map_err(js_error_to_string)
+            .unwrap();
+        assert_eq!(first_delivery, plaintext);
+
+        // Deliver the exact same MLS ciphertext a second time. A receiver must
+        // reject it rather than expose the application plaintext again.
+        let replay_result = bob_group.process_message(&mut bob_provider, &encrypted);
+        assert!(
+            replay_result.is_err(),
+            "receiver accepted an already-processed MLS application message"
+        );
+    }
+
+    #[test]
     fn create_message() {
         let (alice_provider, alice, mut chess_club_alice, mut bob_provider, _, mut chess_club_bob) =
             create_group_alice_and_bob();
