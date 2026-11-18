@@ -262,7 +262,6 @@ impl Group {
 
         let proposal = Uint8Array::new_with_length(0);
         let commit = mls_message_to_uint8array(&commit_msg)?;
-        let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
         let welcome = mls_message_to_uint8array(&welcome_msg)?;
 
         Ok(AddMessages {
