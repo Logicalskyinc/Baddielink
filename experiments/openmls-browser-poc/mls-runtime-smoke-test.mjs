@@ -112,7 +112,7 @@ try {
       const added = await aliceWorker.request("add-member", {
         keyPackage: keyPackage.keyPackage
       });
-      if (!added.welcome || !added.ratchetTree || added.generation !== 2) {
+      if (!added.commit || !added.welcome || !added.ratchetTree || added.generation !== 2) {
         throw new Error("Founder did not commit the member addition and return Welcome data.");
       }
 
@@ -137,8 +137,15 @@ try {
         keyPackage: charlieKeyPackage.keyPackage,
         faultAt: "after-commit-marker"
       });
-      if (!charlieAdded.welcome || !charlieAdded.ratchetTree || charlieAdded.generation !== 3) {
+      if (!charlieAdded.commit || !charlieAdded.welcome || !charlieAdded.ratchetTree || charlieAdded.generation !== 3) {
         throw new Error("Ambiguous membership commit was not recovered before Welcome publication.");
+      }
+      const bobProcessedMembershipCommit = await bobWorker.request("receive", {
+        ciphertext: charlieAdded.commit
+      });
+      if (new Uint8Array(bobProcessedMembershipCommit.plaintext).byteLength !== 0 ||
+          bobProcessedMembershipCommit.generation !== 4) {
+        throw new Error("Existing recipient did not process and persist the membership Commit.");
       }
       const charlieJoined = await charlieWorker.request("join", {
         groupId,
@@ -158,7 +165,7 @@ try {
       const firstReceived = await bobWorker.request("receive", {
         ciphertext: firstSent.ciphertext
       });
-      if (decode(firstReceived.plaintext) !== "hello from founder" || firstReceived.generation !== 4) {
+      if (decode(firstReceived.plaintext) !== "hello from founder" || firstReceived.generation !== 5) {
         throw new Error("Recipient failed to decrypt and commit first group message.");
       }
       const charlieReceived = await charlieWorker.request("receive", {
@@ -175,7 +182,7 @@ try {
       bobWorker = startRuntime();
       const bobRestored = await bobWorker.request("initialize", bobArgs);
       if (!bobRestored.ready || !bobRestored.restored ||
-          bobRestored.generation !== 4 || bobRestored.groupId !== groupId) {
+          bobRestored.generation !== 5 || bobRestored.groupId !== groupId) {
         throw new Error("Recipient worker restart did not restore its authenticated group state.");
       }
 
@@ -196,7 +203,7 @@ try {
         ciphertext: secondSent.ciphertext
       });
       if (decode(secondReceived.plaintext) !== "message after founder restart" ||
-          secondReceived.generation !== 5) {
+          secondReceived.generation !== 6) {
         throw new Error("Recipient could not decrypt the message sent after founder restart.");
       }
       const charlieSecondReceived = await charlieWorker.request("receive", {
@@ -219,6 +226,7 @@ try {
         preCommitMembershipFailureDidNotPublishWelcome: true,
         rejectedMembershipStateDidNotSurviveRestart: true,
         memberAdditionAndWelcomeCommitted: true,
+        existingMemberProcessedMembershipCommit: true,
         ambiguousMembershipCommitRecoveredBeforeWelcome: true,
         secondRecipientJoined: true,
         threeMemberMessageDecrypted: true,
