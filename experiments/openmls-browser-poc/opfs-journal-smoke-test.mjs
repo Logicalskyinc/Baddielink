@@ -76,9 +76,11 @@ try {
         }
       }
 
-      // Any failure at or after marker publication begins is conservatively
-      // ambiguous, even if recovery proves the marker was not committed.
+      // At or after marker publication begins, the operation result is ambiguous.
+      // Recovery, not the error flag, determines which generation is authoritative.
       let postMarkerGeneration = 4;
+      let lastCommittedGeneration = 3;
+      let lastCommittedPayload = "checkpoint-three";
       for (const faultAt of ["before-commit-marker-write", "after-commit-marker", "during-readback"]) {
         const generation = postMarkerGeneration++;
         const payload = `candidate-${generation}`;
@@ -90,9 +92,21 @@ try {
         }
         if (!rejected) throw new Error(`Post-marker failure was not reported as ambiguous at ${faultAt}.`);
         const recovered = await request("recover");
-        if (recovered.generation !== generation || text(recovered.bytes) !== payload) {
-          throw new Error(`Committed generation could not be reconciled after ${faultAt}.`);
+
+        // This injection occurs immediately before any marker bytes are written,
+        // so recovery must retain the prior generation. Later injections happen
+        // after the marker is durable and must recover the candidate generation.
+        const expectedGeneration = faultAt === "before-commit-marker-write"
+          ? lastCommittedGeneration
+          : generation;
+        const expectedPayload = faultAt === "before-commit-marker-write"
+          ? lastCommittedPayload
+          : payload;
+        if (recovered.generation !== expectedGeneration || text(recovered.bytes) !== expectedPayload) {
+          throw new Error(`Recovery selected the wrong authoritative generation after ${faultAt}.`);
         }
+        lastCommittedGeneration = recovered.generation;
+        lastCommittedPayload = expectedPayload;
       }
 
       const sizeBeforeCorruption = (await request("stat")).size;
@@ -118,7 +132,8 @@ try {
         persistedAfterReopen: true,
         staleGenerationRejected,
         malformedFrameRejected,
-        corruptedJournalLeftUntouched: sizeAfterFailedRecovery === sizeAfterCorruption
+        corruptedJournalLeftUntouched: sizeAfterFailedRecovery === sizeAfterCorruption,
+        ambiguousCommitReconciledFromRecovery: true
       };
     } finally {
       try { await request("close"); } catch {}
@@ -134,7 +149,7 @@ try {
   console.log("PASS: stale generations are rejected.");
   console.log("PASS: latest committed generation survives close/reopen.");
   console.log("PASS: pre-marker failures preserve the previous committed generation.");
-  console.log("PASS: post-marker failures report ambiguous outcome and reconcile from recovery.");
+  console.log("PASS: ambiguous marker failures are reconciled from journal recovery.");
   console.log("PASS: malformed complete frame is rejected without truncating the journal.");
   console.log(JSON.stringify(result));
 } finally {
