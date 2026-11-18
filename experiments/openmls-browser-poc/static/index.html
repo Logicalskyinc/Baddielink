@@ -114,6 +114,45 @@
         snapshot
       );
 
+      // Negative tests: tampering, a different device key, and a different
+      // account/device binding must all fail authentication before restore.
+      const encryptedBytes = new Uint8Array(encryptedSnapshot);
+      const tamperedBytes = encryptedBytes.slice();
+      tamperedBytes[tamperedBytes.length - 1] ^= 0x01;
+      let tamperRejected = false;
+      try {
+        await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: aad }, key, tamperedBytes);
+      } catch (error) {
+        if (error.name !== "OperationError") throw error;
+        tamperRejected = true;
+      }
+      if (!tamperRejected) throw new Error("Tampered snapshot was accepted.");
+
+      const wrongKey = await crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+      );
+      let wrongKeyRejected = false;
+      try {
+        await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: aad }, wrongKey, encryptedSnapshot);
+      } catch (error) {
+        if (error.name !== "OperationError") throw error;
+        wrongKeyRejected = true;
+      }
+      if (!wrongKeyRejected) throw new Error("Snapshot decrypted with a different key.");
+
+      let wrongBindingRejected = false;
+      try {
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv, additionalData: encoder.encode("other-account|other-device|snapshot-v1") },
+          key,
+          encryptedSnapshot
+        );
+      } catch (error) {
+        if (error.name !== "OperationError") throw error;
+        wrongBindingRejected = true;
+      }
+      if (!wrongBindingRejected) throw new Error("Snapshot accepted a different account/device binding.");
+
       // The key, IV, and ciphertext are committed in one IndexedDB transaction.
       // A transaction failure aborts this checkpoint rather than claiming success.
       await putRecord(db, {
@@ -145,7 +184,7 @@
         const plaintext = group.process_message(provider, fromBase64(record.ciphertext));
         const actual = decoder.decode(plaintext);
         if (actual !== EXPECTED) throw new Error("Restored group decrypted unexpected plaintext.");
-        output.textContent = "PASS: IndexedDB checkpoint survived a full page reload.\nPASS: AES-GCM authentication succeeded.\nPASS: OpenMLS provider and group restored.\nPASS: restored group decrypted the queued MLS ciphertext.\nRESULT: browser reload persistence checks passed.";
+        output.textContent = "PASS: IndexedDB checkpoint survived a full page reload.\\nPASS: AES-GCM authentication succeeded.\\nPASS: tampered snapshot rejected.\\nPASS: wrong device key rejected.\\nPASS: wrong account/device binding rejected.\\nPASS: OpenMLS provider and group restored.\\nPASS: restored group decrypted the queued MLS ciphertext.\\nRESULT: browser reload persistence checks passed.";
       } finally {
         db.close();
       }
