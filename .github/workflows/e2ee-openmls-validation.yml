@@ -47,7 +47,7 @@ jobs:
 
       - name: Compile Rust crate for WebAssembly
         run: |
-          wasm-pack build --target web --out-dir pkg --locked
+          wasm-pack build --target web --out-dir pkg --out-name openmls_wasm --locked
           cp static/index.html pkg/index.html
 
       - name: Run native Rust tests
