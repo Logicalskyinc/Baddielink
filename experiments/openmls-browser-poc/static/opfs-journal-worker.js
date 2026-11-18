@@ -148,8 +148,13 @@ self.onmessage = async ({ data }) => {
         throw new Error("Injected failure before commit marker publication.");
       }
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload));
-      writeAll(encodeFrame(COMMIT, generation, digest));
+      // From this point onward, a write or flush error is ambiguous: some or all
+      // commit-marker bytes may have reached OPFS. The caller must recover.
       commitMarkerWritten = true;
+      if (faultAt === "before-commit-marker-write") {
+        throw new Error("Injected failure at the commit-marker publication boundary.");
+      }
+      writeAll(encodeFrame(COMMIT, generation, digest));
       if (faultAt === "after-commit-marker" || faultAt === "during-readback") {
         throw new Error("Injected failure after commit marker publication.");
       }
