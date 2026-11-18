@@ -19,6 +19,11 @@ try {
       deviceId: "runtime-bob-device",
       identityName: "runtime-bob"
     };
+    const charlie = {
+      accountId: "runtime-charlie-account",
+      deviceId: "runtime-charlie-device",
+      identityName: "runtime-charlie"
+    };
 
     function startRuntime() {
       const worker = new Worker(workerUrl, { type: "module" });
@@ -52,8 +57,10 @@ try {
     const decode = value => new TextDecoder().decode(value);
     const aliceArgs = { ...alice, groupId, role: "founder" };
     const bobArgs = { ...bob, role: "member" };
+    const charlieArgs = { ...charlie, role: "member" };
     let aliceWorker = startRuntime();
     let bobWorker = startRuntime();
+    let charlieWorker = startRuntime();
 
     try {
       const aliceInit = await aliceWorker.request("initialize", aliceArgs);
@@ -80,6 +87,28 @@ try {
       const keyPackage = await bobWorker.request("create-key-package");
       if (!keyPackage.keyPackage) throw new Error("Recipient KeyPackage was not returned.");
 
+      let membershipWriteRejected = false;
+      try {
+        await aliceWorker.request("add-member", {
+          keyPackage: keyPackage.keyPackage,
+          faultAt: "before-data-write"
+        });
+      } catch (error) {
+        membershipWriteRejected = /Injected failure/.test(error.message);
+      }
+      if (!membershipWriteRejected) {
+        throw new Error("Pre-commit membership persistence failure did not reject add-member.");
+      }
+
+      // A fresh founder worker must recover the old group, not the uncommitted
+      // candidate. Retrying the same KeyPackage must remain valid.
+      aliceWorker.terminate();
+      aliceWorker = startRuntime();
+      const aliceAfterRejectedAdd = await aliceWorker.request("initialize", aliceArgs);
+      if (!aliceAfterRejectedAdd.restored || aliceAfterRejectedAdd.generation !== 1) {
+        throw new Error("Rejected membership change altered the recovered founder state.");
+      }
+
       const added = await aliceWorker.request("add-member", {
         keyPackage: keyPackage.keyPackage
       });
@@ -96,10 +125,34 @@ try {
         throw new Error("Recipient did not join and commit the MLS group.");
       }
 
+      // Exercise an ambiguous outcome after commit-marker publication begins.
+      // The worker must recover the exact committed candidate before it can
+      // return Charlie's Welcome data to the caller.
+      const charlieInit = await charlieWorker.request("initialize", charlieArgs);
+      if (!charlieInit.ready || charlieInit.groupId !== null) {
+        throw new Error("Second recipient identity-only initialization failed.");
+      }
+      const charlieKeyPackage = await charlieWorker.request("create-key-package");
+      const charlieAdded = await aliceWorker.request("add-member", {
+        keyPackage: charlieKeyPackage.keyPackage,
+        faultAt: "after-commit-marker"
+      });
+      if (!charlieAdded.welcome || !charlieAdded.ratchetTree || charlieAdded.generation !== 3) {
+        throw new Error("Ambiguous membership commit was not recovered before Welcome publication.");
+      }
+      const charlieJoined = await charlieWorker.request("join", {
+        groupId,
+        welcome: charlieAdded.welcome,
+        ratchetTree: charlieAdded.ratchetTree
+      });
+      if (!charlieJoined.joined || charlieJoined.generation !== 3) {
+        throw new Error("Second recipient did not join the recovered MLS group.");
+      }
+
       const firstSent = await aliceWorker.request("send", {
         plaintext: encode("hello from founder").buffer
       });
-      if (!firstSent.ciphertext || firstSent.generation !== 3) {
+      if (!firstSent.ciphertext || firstSent.generation !== 4) {
         throw new Error("Founder did not commit first group message.");
       }
       const firstReceived = await bobWorker.request("receive", {
@@ -107,6 +160,12 @@ try {
       });
       if (decode(firstReceived.plaintext) !== "hello from founder" || firstReceived.generation !== 4) {
         throw new Error("Recipient failed to decrypt and commit first group message.");
+      }
+      const charlieReceived = await charlieWorker.request("receive", {
+        ciphertext: firstSent.ciphertext
+      });
+      if (decode(charlieReceived.plaintext) !== "hello from founder" || charlieReceived.generation !== 4) {
+        throw new Error("Second recipient could not process the committed three-member epoch.");
       }
 
       // Restart the recipient after its receive state has been durably committed.
@@ -123,14 +182,14 @@ try {
       aliceWorker.terminate();
       aliceWorker = startRuntime();
       const aliceRestored = await aliceWorker.request("initialize", aliceArgs);
-      if (!aliceRestored.ready || !aliceRestored.restored || aliceRestored.generation !== 3) {
-        throw new Error("Founder worker restart did not restore the committed two-member group.");
+      if (!aliceRestored.ready || !aliceRestored.restored || aliceRestored.generation !== 4) {
+        throw new Error("Founder worker restart did not restore the committed three-member group.");
       }
 
       const secondSent = await aliceWorker.request("send", {
         plaintext: encode("message after founder restart").buffer
       });
-      if (!secondSent.ciphertext || secondSent.generation !== 4) {
+      if (!secondSent.ciphertext || secondSent.generation !== 5) {
         throw new Error("Restored founder did not commit the next group message.");
       }
       const secondReceived = await bobWorker.request("receive", {
@@ -139,6 +198,13 @@ try {
       if (decode(secondReceived.plaintext) !== "message after founder restart" ||
           secondReceived.generation !== 5) {
         throw new Error("Recipient could not decrypt the message sent after founder restart.");
+      }
+      const charlieSecondReceived = await charlieWorker.request("receive", {
+        ciphertext: secondSent.ciphertext
+      });
+      if (decode(charlieSecondReceived.plaintext) !== "message after founder restart" ||
+          charlieSecondReceived.generation !== 5) {
+        throw new Error("Second recipient could not process the post-restart epoch message.");
       }
 
       const rawCiphertext = decode(new Uint8Array(secondSent.ciphertext));
@@ -150,18 +216,23 @@ try {
         failedWriteDidNotPublish: true,
         recipientIdentityInitializedWithoutGroup: true,
         keyPackageIssued: true,
+        preCommitMembershipFailureDidNotPublishWelcome: true,
+        rejectedMembershipStateDidNotSurviveRestart: true,
         memberAdditionAndWelcomeCommitted: true,
-        recipientJoined: true,
-        twoMemberMessageDecrypted: true,
+        ambiguousMembershipCommitRecoveredBeforeWelcome: true,
+        secondRecipientJoined: true,
+        threeMemberMessageDecrypted: true,
         founderRestartRestoredGroup: true,
         postRestartMessageDecrypted: true,
         plaintextNotPresentInCiphertext: true,
         aliceFinalGeneration: secondSent.generation,
-        bobFinalGeneration: secondReceived.generation
+        bobFinalGeneration: secondReceived.generation,
+        charlieFinalGeneration: charlieSecondReceived.generation
       };
     } finally {
       aliceWorker.terminate();
       bobWorker.terminate();
+      charlieWorker.terminate();
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open("baddielink-mls-runtime-v1", 1);
         request.onsuccess = () => resolve(request.result);
@@ -172,13 +243,14 @@ try {
         const store = tx.objectStore("device-keys");
         store.delete(`${alice.accountId}|${alice.deviceId}`);
         store.delete(`${bob.accountId}|${bob.deviceId}`);
+        store.delete(`${charlie.accountId}|${charlie.deviceId}`);
         tx.oncomplete = resolve;
         tx.onerror = () => reject(tx.error);
       });
       db.close();
 
       const root = await navigator.storage.getDirectory();
-      for (const participant of [alice, bob]) {
+      for (const participant of [alice, bob, charlie]) {
         const digest = new Uint8Array(await crypto.subtle.digest(
           "SHA-256",
           encode(`baddielink|runtime|v1|${participant.accountId}|${participant.deviceId}`)
