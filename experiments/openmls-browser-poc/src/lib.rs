@@ -271,21 +271,29 @@ impl Group {
         })
     }
 
-    /// Remove a member by MLS leaf index and return the serialized Commit.
-    /// The caller must distribute the Commit to remaining members and merge it locally.
-    pub fn remove_member(
+    /// Remove a member by its BasicCredential identity and return the serialized Commit.
+    /// Resolving the credential inside the current group avoids trusting a caller-supplied
+    /// leaf index that may be stale after prior membership changes.
+    pub fn remove_member_by_identity(
         &mut self,
         provider: &Provider,
         sender: &Identity,
-        member_index: u32,
+        member_identity: &str,
     ) -> Result<Vec<u8>, JsError> {
+        let member_index = self.mls_group.members()
+            .find(|member| member.credential.serialized_content() == member_identity.as_bytes())
+            .map(|member| member.index)
+            .ok_or_else(|| JsError::new("Requested MLS member identity was not found."))?;
+
         let (commit, _welcome, _group_info) = self.mls_group.remove_members(
             provider,
             &sender.keypair,
-            &[LeafNodeIndex::new(member_index)],
-        )?;
+            &[member_index],
+        ).map_err(|e| JsError::new(&format!("MLS member removal failed: {e}")))?;
+
         let mut serialized = Vec::new();
-        commit.tls_serialize(&mut serialized)?;
+        commit.tls_serialize(&mut serialized)
+            .map_err(|e| JsError::new(&format!("MLS removal Commit serialization failed: {e}")))?;
         Ok(serialized)
     }
 
