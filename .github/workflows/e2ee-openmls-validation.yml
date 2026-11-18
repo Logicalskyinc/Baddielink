@@ -51,6 +51,7 @@ jobs:
           cp static/index.html pkg/index.html
           cp static/mls-lock.js pkg/mls-lock.js
           cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
+          cp static/opfs-journal-worker.js pkg/opfs-journal-worker.js
 
       - name: Run native Rust tests
         run: cargo test --locked
@@ -78,6 +79,9 @@ jobs:
 
       - name: Verify OPFS worker storage primitives
         run: node opfs-storage-smoke-test.mjs
+
+      - name: Verify OPFS journal recovery
+        run: node opfs-journal-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
