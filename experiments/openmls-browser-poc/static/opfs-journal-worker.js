@@ -42,7 +42,7 @@ function readAll() {
   return bytes;
 }
 
-function recoverFrames(bytes) {
+async function recoverFrames(bytes) {
   const dataByGeneration = new Map();
   const committed = new Map();
   let offset = 0;
