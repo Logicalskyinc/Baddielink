@@ -10,7 +10,8 @@ use openmls::{
     treesync::RatchetTreeIn,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_memory_storage::MemoryStorage;
+use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{types::Ciphersuite, OpenMlsProvider};
 use tls_codec::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -29,27 +30,58 @@ extern "C" {
 static CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
 
 #[wasm_bindgen]
-#[derive(Default)]
-pub struct Provider(OpenMlsRustCrypto);
+pub struct Provider {
+    crypto: RustCrypto,
+    storage: MemoryStorage,
+}
 
-impl AsRef<OpenMlsRustCrypto> for Provider {
-    fn as_ref(&self) -> &OpenMlsRustCrypto {
-        &self.0
+impl Default for Provider {
+    fn default() -> Self {
+        Self { crypto: RustCrypto::default(), storage: MemoryStorage::default() }
     }
 }
 
-impl AsMut<OpenMlsRustCrypto> for Provider {
-    fn as_mut(&mut self) -> &mut OpenMlsRustCrypto {
-        &mut self.0
+impl OpenMlsProvider for Provider {
+    type CryptoProvider = RustCrypto;
+    type RandProvider = RustCrypto;
+    type StorageProvider = MemoryStorage;
+    fn storage(&self) -> &Self::StorageProvider { &self.storage }
+    fn crypto(&self) -> &Self::CryptoProvider { &self.crypto }
+    fn rand(&self) -> &Self::RandProvider { &self.crypto }
+}
+
+impl AsRef<Provider> for Provider {
+    fn as_ref(&self) -> &Provider { self }
+}
+impl AsMut<Provider> for Provider {
+    fn as_mut(&mut self) -> &mut Provider { self }
+}
+
+#[cfg(test)]
+impl Provider {
+    // Test-only checkpoint: snapshots contain private MLS key material and
+    // must not be persisted without authenticated encryption and device-key management.
+    fn snapshot_for_test(&self) -> Vec<u8> {
+        let values = self.storage.values.read().expect("MLS storage lock poisoned");
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&*values, &mut encoded)
+            .expect("MLS storage snapshot serialization failed");
+        encoded
+    }
+
+    fn restore_for_test(snapshot: &[u8]) -> Self {
+        let values: std::collections::HashMap<Vec<u8>, Vec<u8>> =
+            ciborium::de::from_reader(snapshot).expect("MLS storage snapshot deserialization failed");
+        let storage = MemoryStorage::default();
+        *storage.values.write().expect("MLS storage lock poisoned") = values;
+        Self { crypto: RustCrypto::default(), storage }
     }
 }
 
 #[wasm_bindgen]
 impl Provider {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 }
 
 #[wasm_bindgen]
@@ -72,7 +104,7 @@ impl Identity {
         let credential = BasicCredential::new(identity);
         let keypair = SignatureKeyPair::new(signature_scheme)?;
 
-        keypair.store(provider.0.storage())?;
+        keypair.store(provider.storage())?;
 
         let credential_with_key = CredentialWithKey {
             credential: credential.into(),
@@ -89,7 +121,7 @@ impl Identity {
         let bundle = OpenMlsKeyPackage::builder()
             .build(
                 CIPHERSUITE,
-                &provider.0,
+                provider,
                 &self.keypair,
                 self.credential_with_key.clone(),
             )
@@ -143,7 +175,7 @@ impl Group {
             .ciphersuite(CIPHERSUITE)
             .with_group_id(GroupId::from_slice(&group_id_bytes))
             .build(
-                &provider.0,
+                provider,
                 &founder.keypair,
                 founder.credential_with_key.clone(),
             )
@@ -164,8 +196,8 @@ impl Group {
         }?;
         let config = MlsGroupJoinConfig::builder().build();
         let mls_group =
-            StagedWelcome::new_from_welcome(&provider.0, &config, welcome, Some(ratchet_tree.0))?
-                .into_group(&provider.0)?;
+            StagedWelcome::new_from_welcome(provider, &config, welcome, Some(ratchet_tree.0))?
+                .into_group(provider)?;
 
         Ok(Group { mls_group })
     }
@@ -186,7 +218,7 @@ impl Group {
 
         let (commit_msg, welcome_msg, _group_info) = self
             .mls_group
-            .commit_to_pending_proposals(&provider.0, &sender.keypair)?;
+            .commit_to_pending_proposals(provider, &sender.keypair)?;
 
         let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
 
@@ -210,7 +242,7 @@ impl Group {
         member_index: u32,
     ) -> Result<Vec<u8>, JsError> {
         let (commit, _welcome, _group_info) = self.mls_group.remove_members(
-            &provider.0,
+            provider,
             &sender.keypair,
             &[LeafNodeIndex::new(member_index)],
         )?;
@@ -280,7 +312,7 @@ impl Group {
             openmls::framing::ProcessedMessageContent::ProposalMessage(proposal)
             | openmls::framing::ProcessedMessageContent::ExternalJoinProposalMessage(proposal) => {
                 self.mls_group
-                    .store_pending_proposal(provider.0.storage(), *proposal)?;
+                    .store_pending_proposal(provider.storage(), *proposal)?;
                 Ok(vec![])
             }
             openmls::framing::ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
@@ -355,7 +387,7 @@ impl Group {
         member_index: LeafNodeIndex,
     ) -> Result<Vec<u8>, JsError> {
         let (commit, _welcome, _group_info) = self.mls_group.remove_members(
-            &provider.0,
+            provider,
             &sender.keypair,
             &[member_index],
         )?;
@@ -670,6 +702,45 @@ mod tests {
             replay_result.is_err(),
             "OpenMLS accepted an already-processed application message"
         );
+    }
+
+    #[test]
+    fn provider_snapshot_restores_group_and_message_processing() {
+        let (alice_provider, alice, mut alice_group, bob_provider, _bob, bob_group) =
+            create_group_alice_and_bob();
+        let group_id = GroupId::from_slice(b"chess club");
+        let snapshot = bob_provider.snapshot_for_test();
+
+        // Simulate a full process restart before restoring the provider/group.
+        drop(bob_group);
+        drop(bob_provider);
+
+        let restored_provider = Provider::restore_for_test(&snapshot);
+        let mut restored_group = MlsGroup::load(restored_provider.storage(), &group_id)
+            .expect("restored MLS group load failed")
+            .expect("restored MLS group was missing");
+
+        let plaintext = b"message after provider restart";
+        let encrypted = alice_group
+            .create_message(&alice_provider, &alice, plaintext)
+            .expect("Alice message creation failed");
+        let mut encrypted_bytes = encrypted.as_slice();
+        let message = MlsMessageIn::tls_deserialize(&mut encrypted_bytes)
+            .expect("message deserialization failed");
+        let private_message = match message.extract() {
+            MlsMessageBodyIn::PrivateMessage(message) => message,
+            other => panic!("expected a private application message, got {other:?}"),
+        };
+
+        let processed = restored_group
+            .process_message(&restored_provider, private_message)
+            .expect("restored group failed to process message");
+        match processed.into_content() {
+            openmls::framing::ProcessedMessageContent::ApplicationMessage(message) => {
+                assert_eq!(message.into_bytes(), plaintext);
+            }
+            other => panic!("expected application plaintext after restore, got {other:?}"),
+        }
     }
 
     #[test]
