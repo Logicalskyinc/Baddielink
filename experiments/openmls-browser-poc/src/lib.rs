@@ -597,24 +597,15 @@ mod tests {
             .unwrap();
         assert_ne!(previous_export, current_export);
 
-        // Bob can still construct a message in his stale local epoch, but
-        // Alice must reject it after advancing to the new epoch.
-        let stale_bob_message = bob_group
+        // OpenMLS marks the removed member's local group as inactive.
+        // Sending from that evicted group must fail closed.
+        let stale_send = bob_group
             .mls_group
-            .create_message(bob_provider.as_ref(), &bob.keypair, b"stale epoch")
-            .unwrap();
-        let stale_bob_serialized = mls_message_to_u8vec(&stale_bob_message);
-        let mut stale_bob_bytes = stale_bob_serialized.as_slice();
-        let stale_bob_message = MlsMessageIn::tls_deserialize(&mut stale_bob_bytes).unwrap();
-        match stale_bob_message.extract() {
-            MlsMessageBodyIn::PublicMessage(public_message) => {
-                let result = alice_group
-                    .mls_group
-                    .process_message(alice_provider.as_ref(), public_message);
-                assert!(result.is_err(), "current epoch accepted a stale-epoch message");
-            }
-            other => panic!("expected a public stale-epoch message, got {other:?}"),
-        }
+            .create_message(bob_provider.as_ref(), &bob.keypair, b"stale epoch");
+        assert!(
+            stale_send.is_err(),
+            "removed member was able to send from an evicted group"
+        );
 
         let post_removal_message = alice_group
             .create_message(&alice_provider, &alice, b"new epoch only")
