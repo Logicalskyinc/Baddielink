@@ -53,6 +53,7 @@ jobs:
           cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
           cp static/opfs-journal-worker.js pkg/opfs-journal-worker.js
           cp static/opfs-wasm-bridge-worker.js pkg/opfs-wasm-bridge-worker.js
+          cp static/mls-runtime-worker.js pkg/mls-runtime-worker.js
 
       - name: Run native Rust tests
         run: cargo test --locked
@@ -89,6 +90,9 @@ jobs:
 
       - name: Verify synchronous OPFS bridge from WASM
         run: node opfs-wasm-bridge-smoke-test.mjs
+
+      - name: Verify worker-owned MLS commit and restart recovery
+        run: node mls-runtime-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
