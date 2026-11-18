@@ -73,6 +73,20 @@
       });
     }
 
+    async function assertAbortedWritePreservesCheckpoint(db, expectedCiphertext) {
+      await new Promise((resolve) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).put({ partial: true }, RECORD_ID);
+        tx.onabort = () => resolve();
+        tx.onerror = () => resolve();
+        tx.abort();
+      });
+      const stored = await getRecord(db);
+      if (!stored || stored.ciphertext !== expectedCiphertext || stored.partial === true) {
+        throw new Error("Aborted IndexedDB transaction corrupted or replaced the prior checkpoint.");
+      }
+    }
+
     function toBase64(bytes) {
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -163,6 +177,7 @@
         ciphertext: toBase64(ciphertext),
         createdAt: Date.now()
       });
+      await assertAbortedWritePreservesCheckpoint(db, toBase64(ciphertext));
       db.close();
       output.textContent = "PASS: MLS provider snapshot encrypted with AES-GCM and stored in IndexedDB. Reloading to test restore…";
       location.reload();
@@ -184,7 +199,7 @@
         const plaintext = group.process_message(provider, fromBase64(record.ciphertext));
         const actual = decoder.decode(plaintext);
         if (actual !== EXPECTED) throw new Error("Restored group decrypted unexpected plaintext.");
-        output.textContent = "PASS: IndexedDB checkpoint survived a full page reload.\\nPASS: AES-GCM authentication succeeded.\\nPASS: tampered snapshot rejected.\\nPASS: wrong device key rejected.\\nPASS: wrong account/device binding rejected.\\nPASS: OpenMLS provider and group restored.\\nPASS: restored group decrypted the queued MLS ciphertext.\\nRESULT: browser reload persistence checks passed.";
+        output.textContent = "PASS: IndexedDB checkpoint survived a full page reload.\\nPASS: AES-GCM authentication succeeded.\\nPASS: tampered snapshot rejected.\\nPASS: wrong device key rejected.\\nPASS: wrong account/device binding rejected.\\nPASS: aborted IndexedDB write preserved the previous checkpoint.\\nPASS: OpenMLS provider and group restored.\\nPASS: restored group decrypted the queued MLS ciphertext.\\nRESULT: browser reload persistence checks passed.";
       } finally {
         db.close();
       }
