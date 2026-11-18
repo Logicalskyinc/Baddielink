@@ -111,7 +111,8 @@ async function recoverAndRepair() {
 }
 
 self.onmessage = async ({ data }) => {
-  const { id, action, name, generation, bytes } = data;
+  const { id, action, name, generation, bytes, faultAt } = data;
+  let commitMarkerWritten = false;
   try {
     if (action === "open") {
       if (handle) throw new Error("An OPFS journal is already open in this worker.");
@@ -141,9 +142,17 @@ self.onmessage = async ({ data }) => {
         throw new Error("Journal generation must increase monotonically.");
       }
       const payload = new Uint8Array(bytes);
+      if (faultAt === "before-data-write") throw new Error("Injected failure before data write.");
       writeAll(encodeFrame(DATA, generation, payload));
+      if (faultAt === "after-data-flush" || faultAt === "before-commit-marker") {
+        throw new Error("Injected failure before commit marker publication.");
+      }
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", payload));
       writeAll(encodeFrame(COMMIT, generation, digest));
+      commitMarkerWritten = true;
+      if (faultAt === "after-commit-marker" || faultAt === "during-readback") {
+        throw new Error("Injected failure after commit marker publication.");
+      }
       const verified = await recoverFrames(readAll());
       if (verified.generation !== generation ||
           verified.bytes.byteLength !== payload.byteLength ||
@@ -189,6 +198,6 @@ self.onmessage = async ({ data }) => {
     }
     throw new Error(`Unsupported journal action: ${action}`);
   } catch (error) {
-    self.postMessage({ id, ok: false, error: error?.message ?? String(error), errorName: error?.name ?? "Error" });
+    self.postMessage({ id, ok: false, error: error?.message ?? String(error), errorName: error?.name ?? "Error", commitMayHaveSucceeded: commitMarkerWritten });
   }
 };
