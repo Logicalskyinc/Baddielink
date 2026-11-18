@@ -615,13 +615,13 @@ mod tests {
         let post_removal_message =
             MlsMessageIn::tls_deserialize(&mut post_removal_bytes).unwrap();
         match post_removal_message.extract() {
-            MlsMessageBodyIn::PublicMessage(public_message) => {
+            MlsMessageBodyIn::PrivateMessage(private_message) => {
                 let result = bob_group
                     .mls_group
-                    .process_message(bob_provider.as_ref(), public_message);
+                    .process_message(bob_provider.as_ref(), private_message);
                 assert!(result.is_err(), "removed member accepted a post-removal message");
             }
-            other => panic!("expected a public post-removal message, got {other:?}"),
+            other => panic!("expected a private post-removal message, got {other:?}"),
         }
     }
 
