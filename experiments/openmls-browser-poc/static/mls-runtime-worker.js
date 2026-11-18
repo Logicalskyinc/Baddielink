@@ -382,6 +382,28 @@ async function addMember(data) {
   };
 }
 
+async function removeMember(data) {
+  if (!ready || !identity || !group) {
+    throw new Error("MLS runtime is not initialized or has not joined a group.");
+  }
+  if (typeof data.memberIdentity !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(data.memberIdentity)) {
+    throw new Error("A valid MLS member identity is required.");
+  }
+  const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
+  const candidateIdentity = Identity.restore(
+    candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
+  );
+  const candidateGroup = Group.load(candidateProvider, metadata.groupId);
+  const commit = new Uint8Array(candidateGroup.remove_member_by_identity(
+    candidateProvider, candidateIdentity, data.memberIdentity
+  ));
+  candidateGroup.merge_pending_commit(candidateProvider);
+  const committedGeneration = await persistCandidate(
+    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+  );
+  return { generation: committedGeneration, commit: commit.buffer };
+}
+
 async function joinGroup(data) {
   if (!ready || !identity) throw new Error("MLS runtime is not initialized.");
   if (group) throw new Error("This device is already joined to a group.");
@@ -439,6 +461,11 @@ async function handleMessage(data) {
     if (data.action === "add-member") {
       const result = await addMember(data);
       self.postMessage({ id, ok: true, ...result }, [result.commit, result.welcome, result.ratchetTree]);
+      return;
+    }
+    if (data.action === "remove-member") {
+      const result = await removeMember(data);
+      self.postMessage({ id, ok: true, ...result }, [result.commit]);
       return;
     }
     if (data.action === "join") {
