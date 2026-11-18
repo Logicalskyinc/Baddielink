@@ -162,3 +162,16 @@ with check (user_id = (select auth.uid()) and role = 'member' and status = 'remo
 
 comment on table public.spaces is 'Shared public/private space model for BaddieLink Salons and Communities. Encrypted messaging is separate.';
 comment on table public.space_memberships is 'Space membership, roles and join state. Account identity remains platform-controlled.';
+
+
+create policy memberships_self_rejoin on public.space_memberships
+for update to authenticated
+using (user_id = (select auth.uid()) and role = 'member' and status = 'removed')
+with check (
+  user_id = (select auth.uid()) and role = 'member'
+  and exists (select 1 from public.spaces s where s.id = space_id
+    and s.space_type = 'salon' and s.status = 'active'
+    and s.visibility = 'public'
+    and ((s.join_policy = 'open' and status = 'active')
+      or (s.join_policy = 'approval' and status = 'pending')))
+);
