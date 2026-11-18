@@ -8,6 +8,15 @@ The branch pins OpenMLS 0.9.2 / `openmls_traits` 0.6.0. Their released manifests
 
 The Chromium OPFS test already proves that a dedicated worker can acquire a synchronous access handle, perform read/write/flush, exclude a second writer, and read the file after close/reopen. It does not prove the storage provider.
 
+OpenMLS upstream also ships `openmls_sqlite_storage` 0.3.0, which implements the full storage trait and documents transaction usage. Its crate source explicitly states that it does **not support `wasm32`**; it depends on `rusqlite` with bundled SQLite and migrations. We should use its implementation as a semantic reference, not add it to this browser build. The storage trait has a broad surface (group state, proposals, key packages, PSKs, epoch key pairs, and explicit delete methods), so a partial custom provider must not be presented as complete.
+
+## Provider implementation options
+
+1. **Port the OpenMLS SQLite provider to an OPFS-backed SQLite VFS:** potentially reuses mature relational transaction semantics, but requires a supported SQLite WASM build and an OPFS VFS integration. The upstream Rust SQLite provider itself is not WASM-supported.
+2. **Implement a custom OPFS key/value provider:** avoids SQLite VFS integration but requires implementing every method in the pinned `StorageProvider` trait and validating its serialization, list, batch, and deletion semantics. A generic partial adapter is not acceptable.
+
+Do not select either path until a minimal target-specific compile proof exists. The first provider implementation should compile the complete trait surface, even if its initial backend is a test double.
+
 ## Proposed execution boundary
 
 - Instantiate the WASM OpenMLS runtime inside a dedicated Web Worker.
@@ -44,10 +53,11 @@ The two-slot protocol itself needs a precise commit-marker design and crash inje
 
 ## Required test sequence
 
-1. Build the worker-hosted WASM runtime and prove all MLS calls execute in the worker.
-2. Implement a minimal encrypted record store and two-generation journal without OpenMLS; test torn/incomplete slot recovery.
-3. Implement a minimal subset of the pinned `StorageProvider` contract and compile it for `wasm32-unknown-unknown`.
-4. Expand trait coverage until every required storage method is implemented, including list append/remove and deletion semantics.
+1. Compare the upstream SQLite provider's trait implementation with the exact v0.9.2 trait and list every required method, batch operation, and delete operation.
+2. Evaluate whether a SQLite WASM build with an OPFS VFS can run inside the dedicated worker. Require a minimal compile-and-open/transaction/reopen test before adopting it.
+3. If SQLite WASM is not viable, implement a custom provider that compiles the complete pinned `StorageProvider` trait, not a partial subset.
+4. Build the worker-hosted WASM runtime and prove all MLS calls execute in the worker.
+5. Implement an encrypted record store and journal; test torn/incomplete slot recovery.
 5. Establish a two-member MLS group, mutate it, commit, terminate the worker, reopen the store, restore the provider/group, and decrypt a queued message.
 6. Inject failures before write, during write, after flush, during validation, and before commit publication. Confirm recovery always chooses the last valid committed generation.
 7. Verify stale generation rejection, account/device/group binding, ciphertext tampering rejection, and unsupported format rejection.
@@ -61,3 +71,11 @@ The two-slot protocol itself needs a precise commit-marker design and crash inje
 - This file does not authorize production integration, deployment, Supabase schema changes, or activation of private messaging.
 - This spike does not claim secure deletion from flash storage or browser backups.
 - This spike does not solve independent-device synchronization, device revocation, recovery, attachments, key transparency, or server delivery.
+
+
+## Upstream storage-provider reference
+
+- OpenMLS SQLite provider source: https://github.com/openmls/openmls/tree/v0.9.2/sqlite_storage
+- Its crate manifest pins `rusqlite` with bundled SQLite and Refinery migrations.
+- Its crate documentation explicitly states: SQLite storage currently does not support `wasm32`.
+- Treat this provider as the behavioral reference for the complete trait, including transaction boundaries, but not as a browser dependency.
