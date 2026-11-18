@@ -1,0 +1,63 @@
+name: E2EE OpenMLS validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "experiments/openmls-browser-poc/**"
+      - ".github/workflows/e2ee-openmls-validation.yml"
+      - "docs/E2EE_IMPLEMENTATION_PLAN.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2ee-openmls-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-wasm:
+    name: Build OpenMLS WebAssembly prototype
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: experiments/openmls-browser-poc
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/openmls-browser-poc
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      - name: Resolve and record dependency lockfile
+        run: cargo generate-lockfile
+
+      - name: Compile Rust crate for WebAssembly
+        run: wasm-pack build --target web --out-dir pkg --locked
+
+      - name: Run native Rust tests
+        run: cargo test --locked
+
+      - name: Upload build output and resolved lockfile for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openmls-wasm-validation-${{ github.sha }}
+          path: |
+            experiments/openmls-browser-poc/Cargo.lock
+            experiments/openmls-browser-poc/pkg/
+          if-no-files-found: warn
+          retention-days: 14
