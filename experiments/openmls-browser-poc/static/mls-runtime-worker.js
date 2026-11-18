@@ -259,10 +259,6 @@ async function initialize(data) {
       ...keyRecord,
       groupId: snapshotRecord.groupId
     });
-    if (keyRecord.groupId !== snapshotRecord.groupId) {
-      keyRecord = { ...keyRecord, groupId: snapshotRecord.groupId };
-      await writeKeyRecord(db, keyId, keyRecord);
-    }
     generation = recovered.generation;
     ready = true;
     return {
@@ -270,7 +266,7 @@ async function initialize(data) {
       restored: true,
       generation,
       publicKey: Array.from(keyRecord.publicKey),
-      groupId: keyRecord.groupId
+      groupId: metadata.groupId
     };
   }
 
@@ -399,14 +395,8 @@ async function joinGroup(data) {
     candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null,
     nextGroupId
   );
-  const db = await openKeyDatabase();
-  const keyId = `${metadata.accountId}|${metadata.deviceId}`;
-  const oldRecord = await readKeyRecord(db, keyId);
-  if (!oldRecord) {
-    ready = false;
-    throw new Error("Group committed but device metadata is missing. Runtime is locked.");
-  }
-  await writeKeyRecord(db, keyId, { ...oldRecord, groupId: nextGroupId });
+  // The group identifier is authenticated inside the committed snapshot
+  // envelope. IndexedDB metadata is deliberately not a second authority.
   return { generation: committedGeneration, joined: true };
 }
 
