@@ -1,3 +1,4 @@
+mod opfs_bridge;
 mod utils;
 
 use js_sys::Uint8Array;
