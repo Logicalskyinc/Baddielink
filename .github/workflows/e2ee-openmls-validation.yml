@@ -49,6 +49,7 @@ jobs:
         run: |
           wasm-pack build --target web --out-dir pkg --out-name openmls_wasm --locked
           cp static/index.html pkg/index.html
+          cp static/mls-lock.js pkg/mls-lock.js
 
       - name: Run native Rust tests
         run: cargo test --locked
@@ -70,6 +71,9 @@ jobs:
 
       - name: Verify the MLS browser round-trip
         run: node browser-smoke-test.mjs
+
+      - name: Verify MLS browser concurrency lock
+        run: node concurrency-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
