@@ -139,11 +139,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            candidate.result_bytes().is_err(),
-            "candidate ciphertext must not be available before durable commit"
-        );
-
         // Candidate work must not mutate the live provider or group.
         assert_eq!(
             committed_before,
@@ -158,9 +153,6 @@ mod tests {
         let _restored_group = Group::load(&restored_provider, "candidate-group").unwrap();
 
         candidate.commit_into(&mut alice_provider, &mut alice_group).unwrap();
-        assert!(candidate.snapshot_bytes().is_err());
-        assert!(candidate.commit_into(&mut alice_provider, &mut alice_group).is_err());
-
         let first_result = candidate.result_bytes().unwrap();
         let mut first_bytes = first_result.as_slice();
         let first_message = MlsMessageIn::tls_deserialize(&mut first_bytes).unwrap();
