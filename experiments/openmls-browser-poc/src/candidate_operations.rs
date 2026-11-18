@@ -6,8 +6,51 @@
 //! result_bytes(). This is an experimental first slice, not a complete transaction layer.
 
 use super::{Group, Identity, Provider};
+use openmls::credentials::{BasicCredential, CredentialWithKey};
+use openmls::prelude::SignatureScheme;
+use openmls_basic_credential::SignatureKeyPair;
 use tls_codec::Serialize;
 use wasm_bindgen::prelude::*;
+
+/// Worker-side identity restoration helpers. The public key is metadata, not
+/// secret material; the corresponding private key remains inside Provider storage.
+#[wasm_bindgen]
+impl Identity {
+    /// Reconstruct an identity after restoring its provider snapshot.
+    /// The key pair is loaded from OpenMLS storage by its public-key identifier.
+    pub fn restore(
+        provider: &Provider,
+        name: &str,
+        public_key: &[u8],
+    ) -> Result<Identity, JsError> {
+        let keypair = SignatureKeyPair::read(
+            provider.storage(),
+            public_key,
+            SignatureScheme::ED25519,
+        )
+        .ok_or_else(|| JsError::new("Stored identity signing key was not found."))?;
+
+        if keypair.public() != public_key {
+            return Err(JsError::new("Stored identity signing key does not match its public key."));
+        }
+
+        let credential = BasicCredential::new(name.bytes().collect());
+        let credential_with_key = CredentialWithKey {
+            credential: credential.into(),
+            signature_key: keypair.public().into(),
+        };
+
+        Ok(Identity {
+            credential_with_key,
+            keypair,
+        })
+    }
+
+    /// Return only the public signing key needed to reconstruct this identity.
+    pub fn public_key_bytes(&self) -> Vec<u8> {
+        self.keypair.to_public_vec()
+    }
+}
 
 #[wasm_bindgen]
 pub struct CandidateGroupOperation {
@@ -109,7 +152,7 @@ mod tests {
     use tls_codec::Deserialize;
 
     fn create_alice_bob() -> (Provider, Identity, Group, Provider, Group) {
-        let mut alice_provider = Provider::new();
+        let alice_provider = Provider::new();
         let bob_provider = Provider::new();
         let alice = Identity::new(&alice_provider, "alice").unwrap();
         let bob = Identity::new(&bob_provider, "bob").unwrap();
@@ -118,10 +161,50 @@ mod tests {
         let add = alice_group
             .native_propose_and_commit_add(&alice_provider, &alice, &bob_key_package)
             .unwrap();
+        let mut alice_provider = alice_provider;
         alice_group.merge_pending_commit(&mut alice_provider).unwrap();
         let tree = alice_group.export_ratchet_tree();
         let bob_group = Group::native_join(&bob_provider, &add.welcome, tree);
         (alice_provider, alice, alice_group, bob_provider, bob_group)
+    }
+
+    #[test]
+    fn identity_can_be_restored_from_provider_snapshot() {
+        let (alice_provider, alice, alice_group, bob_provider, mut bob_group) =
+            create_alice_bob();
+        let public_key = alice.public_key_bytes();
+        let snapshot = alice_provider.export_snapshot_bytes().unwrap();
+
+        let restored_provider = Provider::from_snapshot_bytes(&snapshot).unwrap();
+        let restored_identity = Identity::restore(&restored_provider, "alice", &public_key).unwrap();
+        let mut restored_group = Group::load(&restored_provider, "candidate-group").unwrap();
+
+        let encrypted = restored_group
+            .create_message(
+                &restored_provider,
+                &restored_identity,
+                b"message signed after identity restoration",
+            )
+            .unwrap();
+        let mut encrypted_input = encrypted.as_slice();
+        let message = MlsMessageIn::tls_deserialize(&mut encrypted_input).unwrap();
+        let private_message = match message.extract() {
+            MlsMessageBodyIn::PrivateMessage(message) => message,
+            other => panic!("expected private MLS application message, got {other:?}"),
+        };
+        let processed = bob_group
+            .mls_group
+            .process_message(bob_provider.as_ref(), private_message)
+            .unwrap();
+        match processed.into_content() {
+            ProcessedMessageContent::ApplicationMessage(message) => {
+                assert_eq!(message.into_bytes(), b"message signed after identity restoration");
+            }
+            other => panic!("expected application content, got {other:?}"),
+        }
+
+        // The original live objects were not required for the restored send.
+        assert!(alice_group.is_active());
     }
 
     #[test]
