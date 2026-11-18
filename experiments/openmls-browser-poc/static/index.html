@@ -99,9 +99,7 @@
       Group.join(bobProvider, welcome.welcome, aliceGroup.export_ratchet_tree());
 
       const ciphertext = aliceGroup.create_message(aliceProvider, alice, encoder.encode(EXPECTED));
-      const snapshot = aliceProvider.constructor === Provider
-        ? bobProvider.export_snapshot_bytes()
-        : bobProvider.export_snapshot_bytes();
+      const snapshot = bobProvider.export_snapshot_bytes();
 
       const key = await crypto.subtle.generateKey(
         { name: "AES-GCM", length: 256 },
