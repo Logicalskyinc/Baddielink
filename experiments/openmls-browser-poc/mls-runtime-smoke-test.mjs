@@ -240,8 +240,63 @@ try {
         throw new Error("Second recipient could not process the post-restart epoch message.");
       }
 
-      const rawCiphertext = decode(new Uint8Array(secondSent.ciphertext));
-      if (rawCiphertext.includes("message after founder restart")) {
+      const removal = await aliceWorker.request("remove-member", {
+        memberIdentity: bob.identityName
+      });
+      if (!removal.commit || removal.generation !== 6) {
+        throw new Error("Founder did not durably commit Bob's removal.");
+      }
+      const charlieProcessedRemoval = await charlieWorker.request("receive", {
+        ciphertext: removal.commit
+      });
+      if (new Uint8Array(charlieProcessedRemoval.plaintext).byteLength !== 0 ||
+          charlieProcessedRemoval.generation !== 6) {
+        throw new Error("Remaining member did not process and persist the removal Commit.");
+      }
+
+      // A removed participant may still hold a stale local epoch and create
+      // ciphertext locally. The remaining group must reject it.
+      const staleBobMessage = await bobWorker.request("send", {
+        plaintext: encode("message from removed member").buffer
+      });
+      if (!staleBobMessage.ciphertext || staleBobMessage.generation !== 6) {
+        throw new Error("Removed member stale-state test could not create its old-epoch message.");
+      }
+      let staleMessageRejected = false;
+      try {
+        await aliceWorker.request("receive", { ciphertext: staleBobMessage.ciphertext });
+      } catch (error) {
+        staleMessageRejected = true;
+      }
+      if (!staleMessageRejected) {
+        throw new Error("Remaining group accepted an application message from the removed member's old epoch.");
+      }
+
+      const postRemovalSent = await aliceWorker.request("send", {
+        plaintext: encode("message after member removal").buffer
+      });
+      if (!postRemovalSent.ciphertext || postRemovalSent.generation !== 7) {
+        throw new Error("Founder failed to send in the rotated post-removal epoch.");
+      }
+      const charliePostRemoval = await charlieWorker.request("receive", {
+        ciphertext: postRemovalSent.ciphertext
+      });
+      if (decode(charliePostRemoval.plaintext) !== "message after member removal" ||
+          charliePostRemoval.generation !== 7) {
+        throw new Error("Remaining member failed to decrypt in the rotated post-removal epoch.");
+      }
+      let removedMemberRejectedNewEpoch = false;
+      try {
+        await bobWorker.request("receive", { ciphertext: postRemovalSent.ciphertext });
+      } catch (error) {
+        removedMemberRejectedNewEpoch = true;
+      }
+      if (!removedMemberRejectedNewEpoch) {
+        throw new Error("Removed member decrypted an application message from the post-removal epoch.");
+      }
+
+      const rawCiphertext = decode(new Uint8Array(postRemovalSent.ciphertext));
+      if (rawCiphertext.includes("message after member removal")) {
         throw new Error("Worker returned plaintext instead of MLS ciphertext.");
       }
 
@@ -259,9 +314,14 @@ try {
         founderRestartRestoredGroup: true,
         postRestartMessageDecrypted: true,
         plaintextNotPresentInCiphertext: true,
-        aliceFinalGeneration: secondSent.generation,
-        bobFinalGeneration: secondReceived.generation,
-        charlieFinalGeneration: charlieSecondReceived.generation
+        memberRemovalCommitted: true,
+        remainingMemberProcessedRemovalCommit: true,
+        staleEpochMessageRejected: true,
+        postRemovalEpochMessageDecrypted: true,
+        removedMemberRejectedNewEpoch: true,
+        aliceFinalGeneration: postRemovalSent.generation,
+        bobFinalGeneration: staleBobMessage.generation,
+        charlieFinalGeneration: charliePostRemoval.generation
       };
     } finally {
       aliceWorker.terminate();
@@ -295,7 +355,7 @@ try {
     }
   });
 
-  console.log("PASS: worker-owned two-member MLS lifecycle.");
+  console.log("PASS: worker-owned three-member MLS lifecycle and member removal.");
   console.log(JSON.stringify(result));
   await context.close();
 } finally {
