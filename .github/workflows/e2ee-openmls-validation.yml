@@ -17,10 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-wasm:
-    name: Build OpenMLS WebAssembly prototype
+  build-and-browser-test:
+    name: Build OpenMLS WASM and test in Chromium
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: experiments/openmls-browser-poc
@@ -46,10 +46,30 @@ jobs:
         run: cargo generate-lockfile
 
       - name: Compile Rust crate for WebAssembly
-        run: wasm-pack build --target web --out-dir pkg --locked
+        run: |
+          wasm-pack build --target web --out-dir pkg --locked
+          cp static/index.html pkg/index.html
 
       - name: Run native Rust tests
         run: cargo test --locked
+
+      - name: Install Node.js and Playwright
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Chromium browser
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Serve the compiled browser harness
+        run: |
+          python3 -m http.server 4173 --directory pkg > /tmp/openmls-http.log 2>&1 &
+          echo $! > /tmp/openmls-http.pid
+
+      - name: Verify the MLS browser round-trip
+        run: node browser-smoke-test.mjs
 
       - name: Upload build output and resolved lockfile for review
         if: always()
