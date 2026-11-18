@@ -29,27 +29,53 @@ try {
       const worker = new Worker(workerUrl, { type: "module" });
       let sequence = 0;
       const pending = new Map();
+      function rejectPending(error) {
+        for (const request of pending.values()) {
+          clearTimeout(request.timer);
+          request.reject(error);
+        }
+        pending.clear();
+      }
       worker.addEventListener("message", ({ data }) => {
         const request = pending.get(data.id);
         if (!request) return;
         pending.delete(data.id);
+        clearTimeout(request.timer);
         if (data.ok) request.resolve(data);
-        else request.reject(Object.assign(new Error(`${action}: ${data.error}`), { name: data.errorName }));
+        else request.reject(Object.assign(
+          new Error(`${data.action || "MLS action"}: ${data.error}`),
+          { name: data.errorName || "Error" }
+        ));
       });
       worker.addEventListener("error", event => {
-        for (const request of pending.values()) request.reject(new Error(event.message || "MLS worker failed."));
-        pending.clear();
+        rejectPending(new Error(event.message || "MLS worker failed."));
+      });
+      worker.addEventListener("messageerror", () => {
+        rejectPending(new Error("MLS worker response could not be deserialized."));
       });
       return {
         worker,
         request(action, payload = {}) {
           const id = `runtime-${++sequence}`;
           return new Promise((resolve, reject) => {
-            pending.set(id, { resolve, reject });
-            worker.postMessage({ id, action, ...payload });
+            const timer = setTimeout(() => {
+              pending.delete(id);
+              reject(new Error(`${action}: worker response timed out after 20 seconds.`));
+            }, 20000);
+            pending.set(id, { resolve, reject, timer });
+            try {
+              worker.postMessage({ id, action, ...payload });
+            } catch (error) {
+              clearTimeout(timer);
+              pending.delete(id);
+              reject(error);
+            }
           });
         },
-        terminate() { worker.terminate(); }
+        terminate() {
+          worker.terminate();
+          rejectPending(new Error("MLS worker terminated before the request completed."));
+        }
       };
     }
 
