@@ -1,9 +1,9 @@
 //! Candidate-state MLS operations.
 //!
 //! Each operation restores a private provider/group pair from the last committed
-//! provider snapshot. The live pair is never mutated. The caller must persist
-//! `snapshot_bytes()` durably before taking and installing the candidate handles.
-//! This module is an experimental first slice, not a complete transaction layer.
+//! provider snapshot. The live pair is never mutated. The worker must durably
+//! commit the candidate snapshot before calling commit_into() and publishing
+//! result_bytes(). This is an experimental first slice, not a complete transaction layer.
 
 use super::{Group, Identity, Provider};
 use tls_codec::Serialize;
@@ -14,6 +14,7 @@ pub struct CandidateGroupOperation {
     provider: Option<Provider>,
     group: Option<Group>,
     result: Vec<u8>,
+    committed: bool,
 }
 
 #[wasm_bindgen]
@@ -21,8 +22,8 @@ impl CandidateGroupOperation {
     /// Create an application message using a forked provider and a freshly
     /// loaded group. The original provider and group are not mutated.
     ///
-    /// The returned object is uncommitted. Persist `snapshot_bytes()` first;
-    /// only then take the provider/group handles and make them live.
+    /// The returned object is uncommitted. The worker must persist
+    /// snapshot_bytes() before installing the candidate pair.
     pub fn create_message(
         committed_provider: &Provider,
         group_id: &str,
@@ -47,37 +48,57 @@ impl CandidateGroupOperation {
             provider: Some(candidate_provider),
             group: Some(candidate_group),
             result,
+            committed: false,
         })
     }
 
     /// Return the full candidate provider snapshot. It contains private MLS
-    /// key material and must be authenticated/encrypted before durable storage.
+    /// key material. In the browser architecture this method may only be
+    /// called by the dedicated runtime worker, never by the page.
     pub fn snapshot_bytes(&self) -> Result<Vec<u8>, JsError> {
+        if self.committed {
+            return Err(JsError::new("Candidate state was already committed."));
+        }
         self.provider
             .as_ref()
-            .ok_or_else(|| JsError::new("Candidate provider was already taken."))?
+            .ok_or_else(|| JsError::new("Candidate provider is unavailable."))?
             .export_snapshot_bytes()
     }
 
-    /// Return the operation result. Do not publish it until the snapshot commit succeeds.
-    pub fn result_bytes(&self) -> Vec<u8> {
-        self.result.clone()
+    /// Atomically replace the live provider and group pair after the caller
+    /// has durably committed snapshot_bytes(). There is deliberately no API
+    /// to take either handle independently.
+    pub fn commit_into(
+        &mut self,
+        committed_provider: &mut Provider,
+        committed_group: &mut Group,
+    ) -> Result<(), JsError> {
+        if self.committed {
+            return Err(JsError::new("Candidate state was already committed."));
+        }
+        if self.provider.is_none() || self.group.is_none() {
+            return Err(JsError::new("Candidate provider/group pair is incomplete."));
+        }
+
+        // Both handles are checked before either is moved. No fallible work
+        // remains between taking the pair and replacing the live pair.
+        let candidate_provider = self.provider.take()
+            .ok_or_else(|| JsError::new("Candidate provider is unavailable."))?;
+        let candidate_group = self.group.take()
+            .ok_or_else(|| JsError::new("Candidate group is unavailable."))?;
+
+        *committed_provider = candidate_provider;
+        *committed_group = candidate_group;
+        self.committed = true;
+        Ok(())
     }
 
-    /// Transfer the candidate provider after the caller has durably committed
-    /// the snapshot. Calling this before persistence violates the API contract.
-    pub fn take_provider(&mut self) -> Result<Provider, JsError> {
-        self.provider
-            .take()
-            .ok_or_else(|| JsError::new("Candidate provider was already taken."))
-    }
-
-    /// Transfer the candidate group after the caller has durably committed
-    /// the matching provider snapshot.
-    pub fn take_group(&mut self) -> Result<Group, JsError> {
-        self.group
-            .take()
-            .ok_or_else(|| JsError::new("Candidate group was already taken."))
+    /// The ciphertext is publishable only after commit_into() succeeds.
+    pub fn result_bytes(&self) -> Result<Vec<u8>, JsError> {
+        if !self.committed {
+            return Err(JsError::new("Candidate result cannot be published before durable commit."));
+        }
+        Ok(self.result.clone())
     }
 }
 
@@ -104,13 +125,13 @@ mod tests {
     }
 
     #[test]
-    fn candidate_send_does_not_mutate_committed_provider_and_restores() {
-        let (alice_provider, alice, alice_group, bob_provider, mut bob_group) =
+    fn candidate_send_requires_commit_and_replaces_provider_group_together() {
+        let (mut alice_provider, alice, mut alice_group, bob_provider, mut bob_group) =
             create_alice_bob();
         let committed_before = alice_provider.export_snapshot_bytes().unwrap();
         let committed_epoch = alice_group.mls_group.epoch();
 
-        let candidate = CandidateGroupOperation::create_message(
+        let mut candidate = CandidateGroupOperation::create_message(
             &alice_provider,
             "candidate-group",
             &alice,
@@ -118,23 +139,29 @@ mod tests {
         )
         .unwrap();
 
-        // The source provider remains byte-for-byte unchanged while the
-        // candidate owns the advanced sending ratchet state.
+        assert!(
+            candidate.result_bytes().is_err(),
+            "candidate ciphertext must not be available before durable commit"
+        );
+
+        // Candidate work must not mutate the live provider or group.
         assert_eq!(
             committed_before,
             alice_provider.export_snapshot_bytes().unwrap()
         );
-        assert_eq!(
-            committed_epoch,
-            alice_group.mls_group.epoch(),
-            "candidate send mutated the original in-memory group"
-        );
+        assert_eq!(committed_epoch, alice_group.mls_group.epoch());
 
+        // Simulate the persistence layer validating the exact snapshot it
+        // intends to commit before the live pair is replaced.
         let candidate_snapshot = candidate.snapshot_bytes().unwrap();
-        let candidate_provider = Provider::from_snapshot_bytes(&candidate_snapshot).unwrap();
-        let mut candidate_group = Group::load(&candidate_provider, "candidate-group").unwrap();
+        let restored_provider = Provider::from_snapshot_bytes(&candidate_snapshot).unwrap();
+        let _restored_group = Group::load(&restored_provider, "candidate-group").unwrap();
 
-        let first_result = candidate.result_bytes();
+        candidate.commit_into(&mut alice_provider, &mut alice_group).unwrap();
+        assert!(candidate.snapshot_bytes().is_err());
+        assert!(candidate.commit_into(&mut alice_provider, &mut alice_group).is_err());
+
+        let first_result = candidate.result_bytes().unwrap();
         let mut first_bytes = first_result.as_slice();
         let first_message = MlsMessageIn::tls_deserialize(&mut first_bytes).unwrap();
         let first_private = match first_message.extract() {
@@ -152,14 +179,14 @@ mod tests {
             other => panic!("expected application content, got {other:?}"),
         }
 
-        // A second message from the restored candidate proves its provider
-        // snapshot contains the advanced sender ratchet state.
-        let second = candidate_group
+        // The installed provider/group pair can continue sending. This checks
+        // that the sending ratchet state moved together with the provider.
+        let second = alice_group
             .mls_group
             .create_message(
-                candidate_provider.as_ref(),
+                alice_provider.as_ref(),
                 &alice.keypair,
-                b"message after candidate restore",
+                b"message after candidate commit",
             )
             .unwrap();
         let second_bytes = second.tls_serialize_detached().unwrap();
@@ -175,11 +202,9 @@ mod tests {
             .unwrap();
         match second_processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(message) => {
-                assert_eq!(message.into_bytes(), b"message after candidate restore");
+                assert_eq!(message.into_bytes(), b"message after candidate commit");
             }
             other => panic!("expected application content, got {other:?}"),
         }
     }
-
-
 }
