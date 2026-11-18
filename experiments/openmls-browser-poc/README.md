@@ -39,7 +39,7 @@ Serve the generated `pkg/` directory over localhost and open `/index.html`. Do n
 - The current Rust provider still uses process-local `MemoryStorage`. Reload persistence works by serializing and restoring the entire provider snapshot, not by using a persistent OpenMLS storage backend.
 - The snapshot contains private MLS state. AES-GCM protects its integrity/confidentiality at rest in the test harness, but storing a non-extractable Web Crypto key in the same browser origin does not protect against malicious same-origin JavaScript, XSS, malware, or browser-profile compromise.
 - The Web Locks helper is not yet wired around every MLS state mutation. It coordinates tabs in one origin only; it does not coordinate independent devices or browser profiles. Unsupported Web Locks must fail closed rather than run concurrent mutations.
-- OpenMLS 0.9 and `openmls_traits` 0.6.0 provide an async storage mode. Its futures have a `Send` requirement and are not cancellation-safe. Compatibility with browser IndexedDB promises has not been established.
+- The exact released OpenMLS 0.9.2 and `openmls_traits` 0.6.0 manifests in this branch do not expose an async storage feature. Async-mode documentation from the development branch must not be treated as part of these released dependencies.
 - OPFS synchronous access has been tested in a dedicated worker, but no OPFS-backed OpenMLS storage provider, journal, transaction protocol, or rollback/recovery implementation exists yet.
 - The prototype does not implement a delivery service, production account/device binding, key transparency, secure recovery, offline delivery, attachment encryption, push handling, or complete membership-revocation UX.
 - It does not implement a persistent OpenMLS `StorageProvider`, transactional key deletion, rollback-safe async storage, or production key lifecycle.
@@ -47,8 +47,8 @@ Serve the generated `pkg/` directory over localhost and open `/index.html`. Do n
 
 ## Required gates before production
 
-1. Compile and test async-mode compatibility for the exact pinned dependency graph on WASM.
-2. Evaluate a dedicated-worker OPFS-backed synchronous storage provider as the alternative.
+1. Pin and record the exact released OpenMLS dependency graph used by CI.
+2. Implement a dedicated-worker OPFS-backed synchronous storage provider.
 3. Implement authenticated records, revision checks, atomic commit/recovery, and actual deletion semantics.
 4. Test interrupted operations, quota failures, stale revisions, incomplete records, and recovery from the last committed state.
 5. Integrate serialization around every MLS mutation.
