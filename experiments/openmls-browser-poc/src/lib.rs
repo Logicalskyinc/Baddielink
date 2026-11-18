@@ -324,6 +324,7 @@ impl Group {
     fn native_join(provider: &Provider, mut welcome: &[u8], ratchet_tree: RatchetTree) -> Group {
         let welcome = MlsMessageIn::tls_deserialize(&mut welcome)
             .unwrap()
+            .extract()
             .into_welcome()
             .expect("expected a message of type welcome");
         let config = MlsGroupJoinConfig::builder().build();
