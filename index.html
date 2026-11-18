@@ -14,6 +14,7 @@
   <script src="supabase-config.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="auth-integration.js" defer></script>
+  <script src="salons.js" defer></script>
 </head>
 <body>
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
@@ -115,7 +116,24 @@
               <div class="profile-grid" id="profile-grid"></div>
               <button class="button button-outline hidden" type="button" id="load-more-people">Afficher plus de membres</button>
             </section>
-            <section class="discover-panel" id="discover-panel-rooms" role="tabpanel"><div class="discover-panel-heading"><div><span class="discover-kicker">DISCUSSIONS OUVERTES</span><h2>Salons publics</h2><p>Rejoignez des conversations autour de vos centres d’intérêt.</p></div><span class="feature-status">En préparation</span></div><div class="discover-feature-card"><span class="discover-feature-icon">◉</span><div><strong>Les salons publics arrivent</strong><p>Les salons seront organisés par thèmes, avec des règles de communauté et des outils de modération.</p></div></div></section>
+            <section class="discover-panel" id="discover-panel-rooms" role="tabpanel">
+              <div class="discover-panel-heading"><div><span class="discover-kicker">DISCUSSIONS OUVERTES</span><h2>Salons</h2><p>Créez des espaces autour de vos intérêts, découvrez les salons publics et gérez vos adhésions.</p></div><span class="feature-status">Salons actifs</span></div>
+              <p class="discover-note" id="salon-status" role="status" aria-live="polite">Chargement des salons…</p>
+              <div class="salon-toolbar"><input id="salon-search" type="search" maxlength="60" placeholder="Rechercher un salon…" aria-label="Rechercher un salon"><select id="salon-city-filter" aria-label="Filtrer les salons par ville"><option value="">Toutes les villes</option><option>Abidjan</option><option>Grand-Bassam</option><option>Bouaké</option><option>Yamoussoukro</option><option>San-Pédro</option><option>Korhogo</option></select><button class="button button-outline" type="button" id="refresh-salons">Actualiser</button></div>
+              <div class="salon-layout"><div class="salon-list" id="salon-list"></div><aside class="salon-create-card"><h3>Créer un salon</h3><p>Les salons sont soumis aux règles de sécurité BaddieLink. Le créateur devient propriétaire.</p>
+                <form id="salon-create-form" class="salon-form">
+                  <div class="field"><label for="salon-name">Nom du salon</label><input id="salon-name" name="name" minlength="3" maxlength="60" required placeholder="Ex. Passion musique"></div>
+                  <div class="field"><label for="salon-description">Description</label><textarea id="salon-description" name="description" maxlength="500" rows="3" placeholder="De quoi parle ce salon ?"></textarea></div>
+                  <div class="field"><label for="salon-city">Ville</label><input id="salon-city" name="city" maxlength="80" value="Abidjan" required></div>
+                  <div class="field"><label for="salon-visibility">Visibilité</label><select id="salon-visibility" name="visibility"><option value="public">Public</option><option value="private">Privé</option></select></div>
+                  <div class="field"><label for="salon-join-policy">Accès</label><select id="salon-join-policy" name="join_policy"><option value="open">Adhésion libre</option><option value="approval">Approbation du propriétaire</option><option value="invite_only">Sur invitation uniquement</option></select></div>
+                  <p class="field-note" id="salon-private-note">Les salons privés ne sont pas visibles dans la découverte. Le propriétaire pourra ajouter des membres par nom d’utilisateur.</p>
+                  <button class="button button-primary button-full" type="submit" id="salon-create-submit">Créer le salon</button>
+                </form>
+              </aside></div>
+              <section class="salon-detail hidden" id="salon-detail" aria-live="polite"></section>
+              <p class="discover-note">La messagerie des salons reste désactivée pendant la validation du chiffrement de bout en bout. Aucun message privé n’est envoyé ni stocké en clair.</p>
+            </section>
             <section class="discover-panel" id="discover-panel-communities" role="tabpanel"><div class="discover-panel-heading"><div><span class="discover-kicker">TROUVEZ VOTRE GROUPE</span><h2>Communautés</h2><p>Rencontrez des personnes qui partagent vos passions.</p></div><span class="feature-status">En préparation</span></div><div class="discover-feature-card"><span class="discover-feature-icon">⌘</span><div><strong>Les communautés arrivent</strong><p>Créez ou rejoignez des groupes, échangez et participez à des activités collectives.</p></div></div></section>
             <section class="discover-panel" id="discover-panel-moments" role="tabpanel"><div class="discover-panel-heading"><div><span class="discover-kicker">PARTAGEZ VOTRE QUOTIDIEN</span><h2>Moments</h2><p>Publiez des nouvelles et découvrez les moments partagés par les membres.</p></div><span class="feature-status">En préparation</span></div><div class="discover-feature-card"><span class="discover-feature-icon">✧</span><div><strong>Les moments arrivent</strong><p>Un espace pour les statuts et les publications éphémères, avec des contrôles de confidentialité.</p></div></div></section>
             <section class="discover-panel" id="discover-panel-voice" role="tabpanel"><div class="discover-panel-heading"><div><span class="discover-kicker">PARLEZ EN DIRECT</span><h2>Salons vocaux</h2><p>Participez à des discussions audio en direct ou organisez votre propre salon.</p></div><span class="feature-status">En préparation</span></div><div class="discover-feature-card"><span class="discover-feature-icon">♫</span><div><strong>Les salons vocaux arrivent</strong><p>Les conversations audio incluront des contrôles de prise de parole, de sécurité et de modération.</p></div></div></section>

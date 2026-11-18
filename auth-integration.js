@@ -363,6 +363,7 @@
 
   async function enterAuthenticatedApp(user) {
     currentUserId = user.id;
+    window.BaddieLinkSalons?.load();
     const { data: profile, error } = await client
       .from("profiles")
       .select("display_name, username, bio, city, interested_in, moderation_status, is_discoverable")
