@@ -49,7 +49,9 @@ A simple in-place file overwrite is not sufficient. The prototype must use a rec
 
 Important limitation: OpenMLS storage methods are granular and do not expose one universal transaction callback on the `StorageProvider` trait. The application wrapper must define the high-level MLS operation boundary and commit/rollback the candidate store around every mutating OpenMLS call. Do not persist each trait write immediately and assume that multiple writes form one atomic MLS state transition.
 
-The two-slot protocol itself needs a precise commit-marker design and crash injection tests before implementation. Do not assume OPFS flush alone provides an atomic multi-record transaction.
+A preliminary append-only journal primitive has now been added in `static/opfs-journal-worker.js`. It writes a data frame, flushes it, then writes a SHA-256 commit marker and flushes again. Recovery selects the latest committed generation, ignores uncommitted staged data, and ignores an incomplete trailing frame. The Chromium smoke test is `opfs-journal-smoke-test.mjs`; CI must pass before this primitive is considered validated. This is a crash-consistency checksum, not authentication: the actual provider must encrypt/authenticate the payload with a device-bound AEAD key and fail closed on a committed-frame digest mismatch.
+
+The journal primitive still does not provide an atomic transaction across multiple OpenMLS storage calls. The high-level MLS operation wrapper must stage the entire candidate provider state as one payload and publish its commit marker only after the operation completes. Do not assume OPFS flush alone provides an atomic multi-record transaction.
 
 ## Required test sequence
 
