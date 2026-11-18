@@ -85,19 +85,16 @@ impl Identity {
         })
     }
 
-    pub fn key_package(&self, provider: &Provider) -> KeyPackage {
-        KeyPackage(
-            OpenMlsKeyPackage::builder()
-                .build(
-                    CIPHERSUITE,
-                    &provider.0,
-                    &self.keypair,
-                    self.credential_with_key.clone(),
-                )
-                .unwrap()
-                .key_package()
-                .clone(),
-        )
+    pub fn key_package(&self, provider: &Provider) -> Result<KeyPackage, JsError> {
+        let bundle = OpenMlsKeyPackage::builder()
+            .build(
+                CIPHERSUITE,
+                &provider.0,
+                &self.keypair,
+                self.credential_with_key.clone(),
+            )
+            .map_err(|e| JsError::new(&format!("Key package creation failed: {e}")))?;
+        Ok(KeyPackage(bundle.key_package().clone()))
     }
 }
 
@@ -139,7 +136,7 @@ impl AddMessages {
 
 #[wasm_bindgen]
 impl Group {
-    pub fn create_new(provider: &Provider, founder: &Identity, group_id: &str) -> Group {
+    pub fn create_new(provider: &Provider, founder: &Identity, group_id: &str) -> Result<Group, JsError> {
         let group_id_bytes = group_id.bytes().collect::<Vec<_>>();
 
         let mls_group = MlsGroup::builder()
@@ -150,9 +147,9 @@ impl Group {
                 &founder.keypair,
                 founder.credential_with_key.clone(),
             )
-            .unwrap();
+            .map_err(|e| JsError::new(&format!("MLS group creation failed: {e}")))?;
 
-        Group { mls_group }
+        Ok(Group { mls_group })
     }
     pub fn join(
         provider: &Provider,
@@ -193,9 +190,9 @@ impl Group {
 
         let welcome_msg = welcome_msg.ok_or(NoWelcomeError)?;
 
-        let proposal = mls_message_to_uint8array(&proposal_msg);
-        let commit = mls_message_to_uint8array(&commit_msg);
-        let welcome = mls_message_to_uint8array(&welcome_msg);
+        let proposal = mls_message_to_uint8array(&proposal_msg)?;
+        let commit = mls_message_to_uint8array(&commit_msg)?;
+        let welcome = mls_message_to_uint8array(&welcome_msg)?;
 
         Ok(AddMessages {
             proposal,
@@ -229,7 +226,7 @@ impl Group {
         provider: &mut Provider,
         mut msg: &[u8],
     ) -> Result<Vec<u8>, JsError> {
-        let msg = MlsMessageIn::tls_deserialize(&mut msg).unwrap();
+        let msg = MlsMessageIn::tls_deserialize(&mut msg)?;
 
         let msg = match msg.extract() {
             openmls::framing::MlsMessageBodyIn::PublicMessage(msg) => {
@@ -239,11 +236,19 @@ impl Group {
             openmls::framing::MlsMessageBodyIn::PrivateMessage(msg) => {
                 self.mls_group.process_message(provider.as_ref(), msg)?
             }
-            openmls::framing::MlsMessageBodyIn::Welcome(_) => todo!(),
-            openmls::framing::MlsMessageBodyIn::GroupInfo(_) => todo!(),
-            openmls::framing::MlsMessageBodyIn::KeyPackage(_) => todo!(),
+            openmls::framing::MlsMessageBodyIn::Welcome(_) => {
+                return Err(JsError::new("Welcome messages must be processed through the join flow."));
+            }
+            openmls::framing::MlsMessageBodyIn::GroupInfo(_) => {
+                return Err(JsError::new("Standalone GroupInfo messages are not accepted by this API."));
+            }
+            openmls::framing::MlsMessageBodyIn::KeyPackage(_) => {
+                return Err(JsError::new("KeyPackage messages are not accepted by the group message API."));
+            }
             #[cfg(feature = "targeted-messages-draft")]
-            openmls::framing::MlsMessageBodyIn::TargetedMessage(_) => todo!(),
+            openmls::framing::MlsMessageBodyIn::TargetedMessage(_) => {
+                return Err(JsError::new("Targeted MLS messages are not supported by this prototype."));
+            }
         };
 
         match msg.into_content() {
@@ -270,7 +275,7 @@ impl Group {
             openmls::framing::ProcessedMessageContent::OwnPrivateMessage => Ok(vec![]),
             #[cfg(feature = "extensions-draft")]
             openmls::framing::ProcessedMessageContent::UnresolvedAppDataCommit(_) => {
-                unimplemented!("openmls-wasm does not support AppDataUpdate proposals")
+                return Err(JsError::new("AppDataUpdate proposals are not supported by this prototype."));
             }
         }
     }
@@ -363,8 +368,10 @@ pub struct KeyPackage(OpenMlsKeyPackage);
 impl KeyPackage {
     /// Serialize this KeyPackage to bytes
     #[wasm_bindgen]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.tls_serialize_detached().unwrap()
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.0
+            .tls_serialize_detached()
+            .map_err(|e| JsError::new(&format!("KeyPackage serialization failed: {e}")))
     }
 
     /// Deserialize a KeyPackage from bytes
@@ -390,8 +397,10 @@ pub struct RatchetTree(RatchetTreeIn);
 impl RatchetTree {
     /// Serialize this RatchetTree to bytes
     #[wasm_bindgen]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.tls_serialize_detached().unwrap()
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.0
+            .tls_serialize_detached()
+            .map_err(|e| JsError::new(&format!("RatchetTree serialization failed: {e}")))
     }
 
     /// Deserialize a RatchetTree from bytes
@@ -404,13 +413,14 @@ impl RatchetTree {
     }
 }
 
-fn mls_message_to_uint8array(msg: &MlsMessageOut) -> Uint8Array {
+fn mls_message_to_uint8array(msg: &MlsMessageOut) -> Result<Uint8Array, JsError> {
     // see https://github.com/rustwasm/wasm-bindgen/issues/1619#issuecomment-505065294
 
     let mut serialized = vec![];
-    msg.tls_serialize(&mut serialized).unwrap();
+    msg.tls_serialize(&mut serialized)
+        .map_err(|e| JsError::new(&format!("MLS message serialization failed: {e}")))?;
 
-    unsafe { Uint8Array::new(&Uint8Array::view(&serialized)) }
+    Ok(unsafe { Uint8Array::new(&Uint8Array::view(&serialized)) })
 }
 
 #[cfg(test)]
@@ -442,9 +452,9 @@ mod tests {
             .map_err(js_error_to_string)
             .unwrap();
 
-        let mut chess_club_alice = Group::create_new(&alice_provider, &alice, "chess club");
+        let mut chess_club_alice = Group::create_new(&alice_provider, &alice, "chess club").unwrap();
 
-        let bob_key_pkg = bob.key_package(&bob_provider);
+        let bob_key_pkg = bob.key_package(&bob_provider).unwrap();
 
         let add_msgs = chess_club_alice
             .native_propose_and_commit_add(&alice_provider, &alice, &bob_key_pkg)
