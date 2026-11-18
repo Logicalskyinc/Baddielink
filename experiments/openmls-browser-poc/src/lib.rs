@@ -563,24 +563,33 @@ mod tests {
             .merge_pending_commit(&mut alice_provider)
             .map_err(js_error_to_string)
             .unwrap();
-        // A removed member cannot process the removal Commit because it does
-        // not receive the new epoch's path secret. Exercise OpenMLS directly:
-        // converting this expected native error into JsError invokes wasm-bindgen.
+        // The removed member can authenticate and stage the Commit, but
+        // merging it must evict its own leaf and deactivate the local group.
         let mut removal_commit_bytes = removal_commit.as_slice();
         let removal_message =
             MlsMessageIn::tls_deserialize(&mut removal_commit_bytes).unwrap();
         match removal_message.extract() {
             MlsMessageBodyIn::PrivateMessage(private_message) => {
-                let result = bob_group
+                let processed = bob_group
                     .mls_group
-                    .process_message(bob_provider.as_ref(), private_message);
-                assert!(result.is_err(), "removed member unexpectedly accepted the removal Commit");
+                    .process_message(bob_provider.as_ref(), private_message)
+                    .unwrap();
+                match processed.into_content() {
+                    openmls::framing::ProcessedMessageContent::StagedCommitMessage(staged) => {
+                        bob_group
+                            .mls_group
+                            .merge_staged_commit(bob_provider.as_mut(), *staged)
+                            .unwrap();
+                    }
+                    other => panic!("expected a staged removal Commit, got {other:?}"),
+                }
             }
             other => panic!("expected a private removal Commit, got {other:?}"),
         }
 
         assert_ne!(alice_group.mls_group.epoch(), previous_epoch);
-        assert_eq!(bob_group.mls_group.epoch(), previous_epoch);
+        assert_eq!(bob_group.mls_group.epoch(), alice_group.mls_group.epoch());
+        assert!(!bob_group.mls_group.is_active(), "removed member remained active after merging the Commit");
 
         let current_export = alice_group
             .export_key(&alice_provider, "removal_check", &[0x41], 32)
