@@ -10,34 +10,35 @@ try {
   page.on("pageerror", (error) => browserErrors.push(error.stack || error.message));
 
   await page.goto("http://127.0.0.1:4173/index.html");
-  const runButton = page.locator("#run");
-  await runButton.waitFor({ state: "visible" });
   await page.waitForFunction(() => {
     const output = document.querySelector("#output")?.textContent ?? "";
     return output.includes("WebAssembly initialized.") ||
-      output.includes("WebAssembly initialization failed:");
+      output.includes("FAIL:");
   }, { timeout: 60_000 });
 
   const initialization = await page.locator("#output").innerText();
-  if (initialization.includes("initialization failed")) {
-    throw new Error("Browser WebAssembly initialization failed:\\n" +
-      initialization + "\\nBrowser errors: " + browserErrors.join("\\n"));
+  if (initialization.includes("FAIL:")) {
+    throw new Error("Browser initialization failed:\\n" + initialization);
   }
+
+  const runButton = page.locator("#run");
+  await runButton.waitFor({ state: "visible" });
   if (await runButton.isDisabled()) {
-    throw new Error("MLS test button stayed disabled after initialization. Browser errors: " +
-      browserErrors.join("\\n"));
+    throw new Error("Persistence test button remained disabled.");
   }
 
   await runButton.click();
   await page.waitForFunction(() => {
     const output = document.querySelector("#output")?.textContent ?? "";
-    return output.includes("RESULT:") || output.includes("FAIL:");
+    return output.includes("RESULT: browser reload persistence checks passed.") ||
+      output.includes("FAIL:");
   }, { timeout: 60_000 });
 
   const output = await page.locator("#output").innerText();
   console.log(output);
-  if (!output.includes("RESULT: local group round-trip checks passed.")) {
-    throw new Error("Browser MLS round-trip did not pass.");
+  if (!output.includes("RESULT: browser reload persistence checks passed.")) {
+    throw new Error("Browser reload persistence test failed. Browser errors: " +
+      browserErrors.join("\\n"));
   }
 } finally {
   await browser.close();
