@@ -6,7 +6,7 @@
 //! This module is an experimental first slice, not a complete transaction layer.
 
 use super::{Group, Identity, Provider};
-use tls_codec::Serialize;
+use tls_codec::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
