@@ -259,7 +259,7 @@ try {
       const staleBobMessage = await bobWorker.request("send", {
         plaintext: encode("message from removed member").buffer
       });
-      if (!staleBobMessage.ciphertext || staleBobMessage.generation !== 6) {
+      if (!staleBobMessage.ciphertext || staleBobMessage.generation !== 7) {
         throw new Error("Removed member stale-state test could not create its old-epoch message.");
       }
       let staleMessageRejected = false;
