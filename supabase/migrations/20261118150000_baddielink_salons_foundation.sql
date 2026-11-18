@@ -33,6 +33,49 @@ create index spaces_active_discovery_idx on public.spaces (space_type, city, cre
 create index space_memberships_user_status_idx on public.space_memberships (user_id, status, created_at desc);
 create index space_memberships_space_status_idx on public.space_memberships (space_id, status, created_at desc);
 
+
+create or replace function private.is_active_space_member(p_space_id uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $
+  select (select auth.uid()) is not null and exists (
+    select 1 from public.space_memberships m
+    where m.space_id = p_space_id and m.user_id = (select auth.uid())
+      and m.status = 'active'
+  );
+$;
+
+create or replace function private.is_space_owner(p_space_id uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $
+  select (select auth.uid()) is not null and exists (
+    select 1 from public.spaces s
+    where s.id = p_space_id and s.owner_id = (select auth.uid())
+  );
+$;
+
+revoke all on function private.is_active_space_member(uuid) from public, anon;
+revoke all on function private.is_space_owner(uuid) from public, anon;
+grant execute on function private.is_active_space_member(uuid) to authenticated;
+grant execute on function private.is_space_owner(uuid) to authenticated;
+
+create or replace function private.protect_space_membership_identity()
+returns trigger language plpgsql set search_path = ''
+as $
+begin
+  if new.space_id <> old.space_id or new.user_id <> old.user_id then
+    raise exception 'Space membership identity cannot be changed';
+  end if;
+  if old.role = 'owner' then
+    raise exception 'Space owner membership cannot be changed';
+  end if;
+  return new;
+end;
+$;
+
+create trigger space_memberships_protect_identity
+before update on public.space_memberships
+for each row execute function private.protect_space_membership_identity();
+
 create or replace function private.add_space_owner_membership()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
@@ -84,9 +127,7 @@ with check (
 create policy memberships_select_self_or_active_peers on public.space_memberships
 for select to authenticated using (
   user_id = (select auth.uid()) or exists (
-    select 1 from public.space_memberships mine
-    where mine.space_id = space_memberships.space_id
-      and mine.user_id = (select auth.uid()) and mine.status = 'active')
+    select private.is_active_space_member(space_memberships.space_id))
 );
 
 create policy memberships_insert_self_join on public.space_memberships
@@ -103,21 +144,13 @@ for insert to authenticated with check (
 create policy memberships_owner_invite on public.space_memberships
 for insert to authenticated with check (
   user_id <> (select auth.uid()) and role = 'member' and status = 'active'
-  and exists (select 1 from public.spaces s
-    join public.space_memberships owner_membership on owner_membership.space_id = s.id
-    where s.id = space_id and s.owner_id = (select auth.uid())
-      and owner_membership.user_id = (select auth.uid())
-      and owner_membership.role = 'owner' and owner_membership.status = 'active')
+  and private.is_space_owner(space_id)
 );
 
 create policy memberships_owner_manage on public.space_memberships
 for update to authenticated
 using (
-  role <> 'owner' and exists (select 1 from public.spaces s
-    join public.space_memberships owner_membership on owner_membership.space_id = s.id
-    where s.id = space_memberships.space_id and s.owner_id = (select auth.uid())
-      and owner_membership.user_id = (select auth.uid())
-      and owner_membership.role = 'owner' and owner_membership.status = 'active')
+  role <> 'owner' and private.is_space_owner(space_memberships.space_id)
 )
 with check (
   role in ('member', 'moderator') and status in ('active', 'removed', 'banned')
