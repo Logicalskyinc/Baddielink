@@ -5,7 +5,7 @@
 //! `snapshot_bytes()` durably before taking and installing the candidate handles.
 //! This module is an experimental first slice, not a complete transaction layer.
 
-use super::{Group, GroupId, Identity, Provider};
+use super::{Group, Identity, Provider};
 use tls_codec::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -127,7 +127,8 @@ mod tests {
         let candidate_provider = Provider::from_snapshot_bytes(&candidate_snapshot).unwrap();
         let mut candidate_group = Group::load(&candidate_provider, "candidate-group").unwrap();
 
-        let mut first_bytes = candidate.result_bytes().as_slice();
+        let first_result = candidate.result_bytes();
+        let mut first_bytes = first_result.as_slice();
         let first_message = MlsMessageIn::tls_deserialize(&mut first_bytes).unwrap();
         let first_private = match first_message.extract() {
             MlsMessageBodyIn::PrivateMessage(message) => message,
