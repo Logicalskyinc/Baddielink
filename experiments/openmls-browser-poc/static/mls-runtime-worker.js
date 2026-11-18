@@ -176,7 +176,9 @@ async function restoreFromSnapshot(snapshotBytes, record) {
     record.identityName,
     new Uint8Array(record.publicKey)
   );
-  const restoredGroup = Group.load(restoredProvider, record.groupId);
+  const restoredGroup = record.groupId
+    ? Group.load(restoredProvider, record.groupId)
+    : null;
   provider = restoredProvider;
   identity = restoredIdentity;
   group = restoredGroup;
@@ -189,7 +191,8 @@ async function initialize(data) {
     accountId: validateIdentifier(data.accountId, "account identifier"),
     deviceId: validateIdentifier(data.deviceId, "device identifier"),
     identityName: validateIdentifier(data.identityName, "identity name"),
-    groupId: validateIdentifier(data.groupId, "group identifier")
+    role: data.role === "member" ? "member" : "founder",
+    groupId: data.role === "member" ? null : validateIdentifier(data.groupId, "group identifier")
   };
   const identityName = metadata.identityName;
   const groupId = metadata.groupId;
@@ -233,7 +236,7 @@ async function initialize(data) {
   );
   provider = new Provider();
   identity = new Identity(provider, identityName);
-  group = Group.create_new(provider, identity, groupId);
+  group = metadata.role === "founder" ? Group.create_new(provider, identity, groupId) : null;
   const publicKey = Array.from(identity.public_key_bytes());
   keyRecord = { key: encryptionKey, identityName, groupId, publicKey };
   await writeKeyRecord(db, keyId, keyRecord);
@@ -297,13 +300,16 @@ async function createKeyPackage(data) {
   );
   const keyPackage = candidateIdentity.key_package(candidateProvider);
   const bytes = new Uint8Array(keyPackage.to_bytes());
-  const candidateGroup = Group.load(candidateProvider, metadata.groupId);
+  const candidateGroup = metadata.groupId
+    ? Group.load(candidateProvider, metadata.groupId)
+    : null;
   await persistCandidate(candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null);
   return { generation, keyPackage: bytes.buffer };
 }
 
 async function addMember(data) {
-  if (!ready) throw new Error("MLS runtime is not initialized.");
+  if (!ready || !identity) throw new Error("MLS runtime is not initialized.");
+  if (!data.keyPackage) throw new Error("KeyPackage bytes are required.");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
   const candidateIdentity = Identity.restore(
     candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
@@ -327,7 +333,8 @@ async function addMember(data) {
 }
 
 async function joinGroup(data) {
-  if (!ready) throw new Error("MLS runtime is not initialized.");
+  if (!ready || !identity) throw new Error("MLS runtime is not initialized.");
+  if (group) throw new Error("This device is already joined to a group.");
   const nextGroupId = validateIdentifier(data.groupId, "group identifier");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
   const candidateIdentity = Identity.restore(
@@ -336,32 +343,23 @@ async function joinGroup(data) {
   const welcome = new Uint8Array(data.welcome);
   const ratchetTree = RatchetTree.from_bytes(new Uint8Array(data.ratchetTree));
   const candidateGroup = Group.join(candidateProvider, welcome, ratchetTree);
-
+  const committedGeneration = await persistCandidate(
+    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+  );
+  metadata.groupId = nextGroupId;
   const db = await openKeyDatabase();
   const keyId = `${metadata.accountId}|${metadata.deviceId}`;
   const oldRecord = await readKeyRecord(db, keyId);
-  if (!oldRecord) throw new Error("Device key record is missing.");
-  const nextRecord = { ...oldRecord, groupId: nextGroupId };
-  await writeKeyRecord(db, keyId, nextRecord);
-  try {
-    const committedGeneration = await persistCandidate(
-      candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
-    );
-    metadata.groupId = nextGroupId;
-    return { generation: committedGeneration, joined: true };
-  } catch (error) {
-    try {
-      await writeKeyRecord(db, keyId, oldRecord);
-    } catch {
-      ready = false;
-      throw new Error("Group join did not commit and device metadata rollback failed. Runtime is locked.");
-    }
-    throw error;
+  if (!oldRecord) {
+    ready = false;
+    throw new Error("Group committed but device metadata is missing. Runtime is locked.");
   }
+  await writeKeyRecord(db, keyId, { ...oldRecord, groupId: nextGroupId });
+  return { generation: committedGeneration, joined: true };
 }
 
 async function receiveMessage(data) {
-  if (!ready) throw new Error("MLS runtime is not initialized.");
+  if (!ready || !group) throw new Error("MLS runtime is not initialized or has not joined a group.");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
   const candidateIdentity = Identity.restore(
     candidateProvider, metadata.identityName, new Uint8Array(identity.public_key_bytes())
