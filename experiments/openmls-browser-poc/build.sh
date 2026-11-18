@@ -6,3 +6,4 @@ wasm-pack build --target web --out-dir pkg --out-name openmls_wasm
 cp static/index.html pkg/index.html
 cp static/mls-lock.js pkg/mls-lock.js
 cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
+\ncp static/opfs-journal-worker.js pkg/opfs-journal-worker.js\n
