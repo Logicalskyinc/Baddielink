@@ -2,19 +2,25 @@
 
 **Status:** Experimental scaffold only. Not integrated into BaddieLink and not approved for production use.
 
-This isolated crate evaluates whether the OpenMLS Messaging Layer Security (MLS) implementation can run in BaddieLink's browser-first frontend through WebAssembly. The wrapper and sample harness are adapted from upstream OpenMLS revision `bcde2afd3d1fb6045753b544ea290605081abe20`; see `NOTICE.md` and `LICENSE`. It is based on the upstream OpenMLS `openmls-wasm` experiment, with the workspace path dependencies changed to versioned crates.io dependencies.
+This isolated crate evaluates the OpenMLS Messaging Layer Security (MLS) implementation in BaddieLink's browser-first frontend through WebAssembly. The wrapper is adapted from upstream OpenMLS revision `bcde2afd3d1fb6045753b544ea290605081abe20`; see `NOTICE.md` and `LICENSE`.
 
-## Why this exists
+## Current verified scope
 
-BaddieLink's current frontend is plain HTML, CSS and JavaScript with no build pipeline. OpenMLS is a Rust implementation of MLS. Its upstream repository includes a WebAssembly bindings experiment and browser demo, but the upstream project lists `wasm32-unknown-unknown` as built on CI and not tested on CI. This folder isolates that evaluation from the member application.
+- OpenMLS group creation, invitation, membership updates, message encryption/decryption, member removal, and replay rejection have native/browser validation coverage.
+- A native provider snapshot can be exported and restored for the experiment.
+- The browser harness encrypts provider snapshots with AES-256-GCM and stores the encrypted checkpoint and non-extractable Web Crypto key in IndexedDB.
+- Chromium validation has covered reload/restore, queued-message decryption after reload, tampered ciphertext rejection, wrong-key rejection, account/device AAD mismatch rejection, and aborted-transaction preservation of the previous checkpoint.
+- A browser Web Locks helper and a contention smoke test have been added to evaluate same-origin serialization. Its CI run is tracked separately; do not treat it as validated until that run passes.
+
+The snapshot test is an experimental persistence envelope around OpenMLS `MemoryStorage`. It is **not** an IndexedDB-backed OpenMLS `StorageProvider`.
 
 ## Run locally
 
 Prerequisites:
-- Rust toolchain compatible with OpenMLS 0.9.0.
+- Rust toolchain compatible with OpenMLS 0.9.x.
 - `wasm32-unknown-unknown` Rust target.
 - `wasm-pack`.
-- A modern browser with WebAssembly and Web Crypto support.
+- Node.js and Playwright with Chromium for browser smoke tests.
 
 From this directory:
 
@@ -24,39 +30,25 @@ cargo install wasm-pack
 ./build.sh
 ```
 
-Then serve the generated `pkg/` directory over localhost using a static HTTP server and open `/index.html`. Do not open it using a `file://` URL. The build script copies the browser harness beside the generated WebAssembly JavaScript and binary files.
+Serve the generated `pkg/` directory over localhost and open `/index.html`. Do not use a `file://` URL.
 
-## What this first harness checks
+## Security and architecture limitations
 
-- WebAssembly module initialization in a browser.
-- Local identity creation for multiple participants.
-- MLS group creation and invitation of another member.
-- Group membership update propagation.
-- Encryption and decryption of an application message between group members.
-- Matching exported group secrets for participants in the same group epoch.
+- The current Rust provider still uses process-local `MemoryStorage`. Reload persistence works by serializing and restoring the entire provider snapshot, not by using a persistent OpenMLS storage backend.
+- The snapshot contains private MLS state. AES-GCM protects its integrity/confidentiality at rest in the test harness, but storing a non-extractable Web Crypto key in the same browser origin does not protect against malicious same-origin JavaScript, XSS, malware, or browser-profile compromise.
+- The Web Locks helper is not yet wired around every MLS state mutation. It coordinates tabs in one origin only; it does not coordinate independent devices or browser profiles. Unsupported Web Locks must fail closed rather than run concurrent mutations.
+- The prototype does not implement a delivery service, production account/device binding, key transparency, secure recovery, offline delivery, attachment encryption, push handling, or complete membership-revocation UX.
+- It does not implement a persistent OpenMLS `StorageProvider`, transactional key deletion, rollback-safe async storage, or production key lifecycle.
+- No message content or private MLS state should be sent to Supabase from this experiment.
 
-## Known limitations
+## Required gates before production
 
-- The upstream sample provider uses in-memory storage. State is lost when the page reloads. Persistent, encrypted client-side state is a separate required test.
-- This sample is not a complete chat protocol integration. It does not implement a delivery service, account/device binding, key transparency, secure recovery, offline delivery, attachment encryption, push notification handling, or membership revocation UX.
-- The upstream sample contains demonstration-only panic paths and incomplete handling for some MLS message types. It must not be exposed to real user data.
-- No message content should be sent to Supabase from this experiment.
-- Do not add this experiment to the production page or deploy it.
-
-## Acceptance gates before protocol selection
-
-1. Compile the crate for `wasm32-unknown-unknown`.
-2. Run browser tests on desktop Chromium and Firefox.
-3. Test the target mobile browser, including iOS Safari.
-4. Measure compressed WASM size, cold-start time and memory use on a low-end mobile device.
-5. Add persistent encrypted MLS state and verify reload/restart behavior.
-6. Test add/remove membership, stale epochs, replay rejection, device replacement and recovery.
+1. Validate the lock helper in CI and integrate it around every MLS mutation.
+2. Evaluate OpenMLS async storage on `wasm32`; implement a storage provider with atomic writes, authenticated records, revision checks, and real deletion semantics.
+3. Test interrupted operations, quota failures, stale revisions, incomplete records, and recovery from the last committed state.
+4. Test separate tabs, browser profiles, independent devices, device revocation, and MLS epoch rotation.
+5. Test Chromium, Firefox, and iOS Safari.
+6. Implement and test recovery, attachment encryption, key transparency, and safety warnings.
 7. Complete an independent security review before any production E2EE claim.
 
-## Upstream references
-
-- OpenMLS: https://github.com/openmls/openmls
-- Upstream WebAssembly experiment: https://github.com/openmls/openmls/tree/main/openmls-wasm
-- MLS standard, RFC 9420: https://datatracker.ietf.org/doc/rfc9420/
-
-The upstream OpenMLS WebAssembly sample is MIT-licensed. Its source attribution and license are retained in this experimental folder.
+Do not add this experiment to the production page or deploy it.
