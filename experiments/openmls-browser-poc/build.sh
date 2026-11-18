@@ -2,5 +2,5 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p pkg
-wasm-pack build --target web --out-dir pkg
+wasm-pack build --target web --out-dir pkg --out-name openmls_wasm
 cp static/index.html pkg/index.html
