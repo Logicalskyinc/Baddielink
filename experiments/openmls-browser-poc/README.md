@@ -10,7 +10,9 @@ This isolated crate evaluates the OpenMLS Messaging Layer Security (MLS) impleme
 - A native provider snapshot can be exported and restored for the experiment.
 - The browser harness encrypts provider snapshots with AES-256-GCM and stores the encrypted checkpoint and non-extractable Web Crypto key in IndexedDB.
 - Chromium validation has covered reload/restore, queued-message decryption after reload, tampered ciphertext rejection, wrong-key rejection, account/device AAD mismatch rejection, and aborted-transaction preservation of the previous checkpoint.
-- A browser Web Locks helper and a contention smoke test have been added to evaluate same-origin serialization. Its CI run is tracked separately; do not treat it as validated until that run passes.
+- Chromium CI run #33 verified same-origin Web Locks serialization and lock release after an operation failure.
+- Chromium CI run #38 verified dedicated-worker OPFS synchronous access, exclusive file access, flush/read-back, and persistence after close/reopen.
+- The OPFS and Web Locks tests validate browser primitives only. Neither is integrated with the OpenMLS provider.
 
 The snapshot test is an experimental persistence envelope around OpenMLS `MemoryStorage`. It is **not** an IndexedDB-backed OpenMLS `StorageProvider`.
 
@@ -37,18 +39,22 @@ Serve the generated `pkg/` directory over localhost and open `/index.html`. Do n
 - The current Rust provider still uses process-local `MemoryStorage`. Reload persistence works by serializing and restoring the entire provider snapshot, not by using a persistent OpenMLS storage backend.
 - The snapshot contains private MLS state. AES-GCM protects its integrity/confidentiality at rest in the test harness, but storing a non-extractable Web Crypto key in the same browser origin does not protect against malicious same-origin JavaScript, XSS, malware, or browser-profile compromise.
 - The Web Locks helper is not yet wired around every MLS state mutation. It coordinates tabs in one origin only; it does not coordinate independent devices or browser profiles. Unsupported Web Locks must fail closed rather than run concurrent mutations.
+- OpenMLS 0.9 and `openmls_traits` 0.6.0 provide an async storage mode. Its futures have a `Send` requirement and are not cancellation-safe. Compatibility with browser IndexedDB promises has not been established.
+- OPFS synchronous access has been tested in a dedicated worker, but no OPFS-backed OpenMLS storage provider, journal, transaction protocol, or rollback/recovery implementation exists yet.
 - The prototype does not implement a delivery service, production account/device binding, key transparency, secure recovery, offline delivery, attachment encryption, push handling, or complete membership-revocation UX.
 - It does not implement a persistent OpenMLS `StorageProvider`, transactional key deletion, rollback-safe async storage, or production key lifecycle.
 - No message content or private MLS state should be sent to Supabase from this experiment.
 
 ## Required gates before production
 
-1. Validate the lock helper in CI and integrate it around every MLS mutation.
-2. Evaluate OpenMLS async storage on `wasm32`; implement a storage provider with atomic writes, authenticated records, revision checks, and real deletion semantics.
-3. Test interrupted operations, quota failures, stale revisions, incomplete records, and recovery from the last committed state.
-4. Test separate tabs, browser profiles, independent devices, device revocation, and MLS epoch rotation.
-5. Test Chromium, Firefox, and iOS Safari.
-6. Implement and test recovery, attachment encryption, key transparency, and safety warnings.
-7. Complete an independent security review before any production E2EE claim.
+1. Compile and test async-mode compatibility for the exact pinned dependency graph on WASM.
+2. Evaluate a dedicated-worker OPFS-backed synchronous storage provider as the alternative.
+3. Implement authenticated records, revision checks, atomic commit/recovery, and actual deletion semantics.
+4. Test interrupted operations, quota failures, stale revisions, incomplete records, and recovery from the last committed state.
+5. Integrate serialization around every MLS mutation.
+6. Test separate browser profiles, independent devices, device revocation, and MLS epoch rotation.
+7. Test Chromium, Firefox, and iOS Safari.
+8. Implement and test recovery, attachment encryption, key transparency, and safety warnings.
+9. Complete an independent security review before any production E2EE claim.
 
 Do not add this experiment to the production page or deploy it.
