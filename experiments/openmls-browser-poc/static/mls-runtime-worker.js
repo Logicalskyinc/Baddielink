@@ -185,10 +185,12 @@ async function initialize(data) {
   await init();
   metadata = {
     accountId: validateIdentifier(data.accountId, "account identifier"),
-    deviceId: validateIdentifier(data.deviceId, "device identifier")
+    deviceId: validateIdentifier(data.deviceId, "device identifier"),
+    identityName: validateIdentifier(data.identityName, "identity name"),
+    groupId: validateIdentifier(data.groupId, "group identifier")
   };
-  const identityName = validateIdentifier(data.identityName, "identity name");
-  const groupId = validateIdentifier(data.groupId, "group identifier");
+  const identityName = metadata.identityName;
+  const groupId = metadata.groupId;
   const db = await openKeyDatabase();
   const keyId = `${metadata.accountId}|${metadata.deviceId}`;
   let keyRecord = await readKeyRecord(db, keyId);
@@ -254,7 +256,7 @@ async function sendMessage(data) {
 
   const candidate = CandidateGroupOperation.create_message(
     provider,
-    metadata.groupId || data.groupId || "unused",
+    metadata.groupId,
     identity,
     plaintext
   );
