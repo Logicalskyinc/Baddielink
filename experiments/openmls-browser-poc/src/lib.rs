@@ -636,18 +636,39 @@ mod tests {
             .map_err(js_error_to_string)
             .unwrap();
 
+        // Exercise OpenMLS directly here. The browser-facing wrapper maps
+        // errors to JsError, which is only callable on wasm32 targets.
+        let mut first_bytes = encrypted.as_slice();
+        let first_message = MlsMessageIn::tls_deserialize(&mut first_bytes).unwrap();
+        let first_private = match first_message.extract() {
+            MlsMessageBodyIn::PrivateMessage(message) => message,
+            other => panic!("expected a private application message, got {other:?}"),
+        };
         let first_delivery = bob_group
-            .process_message(&mut bob_provider, &encrypted)
-            .map_err(js_error_to_string)
+            .mls_group
+            .process_message(bob_provider.as_ref(), first_private)
             .unwrap();
-        assert_eq!(first_delivery, plaintext);
+        match first_delivery.into_content() {
+            openmls::framing::ProcessedMessageContent::ApplicationMessage(message) => {
+                assert_eq!(message.into_bytes(), plaintext);
+            }
+            other => panic!("expected application plaintext, got {other:?}"),
+        }
 
-        // Deliver the exact same MLS ciphertext a second time. A receiver must
-        // reject it rather than expose the application plaintext again.
-        let replay_result = bob_group.process_message(&mut bob_provider, &encrypted);
+        // Deserialize the exact same ciphertext again and pass it directly to
+        // OpenMLS. The replay must be rejected by the MLS ratchet state.
+        let mut replay_bytes = encrypted.as_slice();
+        let replay_message = MlsMessageIn::tls_deserialize(&mut replay_bytes).unwrap();
+        let replay_private = match replay_message.extract() {
+            MlsMessageBodyIn::PrivateMessage(message) => message,
+            other => panic!("expected a replayed private message, got {other:?}"),
+        };
+        let replay_result = bob_group
+            .mls_group
+            .process_message(bob_provider.as_ref(), replay_private);
         assert!(
             replay_result.is_err(),
-            "receiver accepted an already-processed MLS application message"
+            "OpenMLS accepted an already-processed application message"
         );
     }
 
