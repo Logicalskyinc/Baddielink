@@ -106,12 +106,34 @@ function aadBytes() {
   );
 }
 
-async function encryptSnapshot(snapshotBytes) {
+function bytesToBase64(bytes) {
+  const input = new Uint8Array(bytes);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < input.length; offset += chunkSize) {
+    binary += String.fromCharCode(...input.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const output = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) output[index] = binary.charCodeAt(index);
+  return output;
+}
+
+async function encryptSnapshot(snapshotBytes, groupId = null) {
+  const payload = new TextEncoder().encode(JSON.stringify({
+    version: 1,
+    groupId,
+    providerSnapshot: bytesToBase64(snapshotBytes)
+  }));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: aadBytes(), tagLength: 128 },
     encryptionKey,
-    snapshotBytes
+    payload
   );
   const ciphertext = new Uint8Array(encrypted);
   const envelope = new Uint8Array(1 + iv.byteLength + ciphertext.byteLength);
@@ -128,11 +150,26 @@ async function decryptSnapshot(envelopeBytes) {
   }
   const iv = envelope.slice(1, 13);
   const ciphertext = envelope.slice(13);
-  return crypto.subtle.decrypt(
+  const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv, additionalData: aadBytes(), tagLength: 128 },
     encryptionKey,
     ciphertext
   );
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(plaintext));
+  } catch {
+    throw new Error("Authenticated MLS snapshot metadata is malformed.");
+  }
+  if (payload.version !== 1 ||
+      !(payload.groupId === null || (typeof payload.groupId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(payload.groupId))) ||
+      typeof payload.providerSnapshot !== "string") {
+    throw new Error("Authenticated MLS snapshot metadata is invalid.");
+  }
+  return {
+    groupId: payload.groupId,
+    providerSnapshot: base64ToBytes(payload.providerSnapshot)
+  };
 }
 
 function bytesEqual(left, right) {
@@ -209,12 +246,23 @@ async function initialize(data) {
     if (!keyRecord || !keyRecord.key) {
       throw new Error("Committed MLS state exists but its device encryption key is missing. Recovery is unavailable.");
     }
-    if (keyRecord.identityName !== identityName || keyRecord.groupId !== groupId) {
-      throw new Error("Requested identity or group does not match the persisted device record.");
+    if (keyRecord.identityName !== identityName) {
+      throw new Error("Requested identity does not match the persisted device record.");
     }
     encryptionKey = keyRecord.key;
-    const snapshot = await decryptSnapshot(recovered.bytes);
-    await restoreFromSnapshot(snapshot, keyRecord);
+    const snapshotRecord = await decryptSnapshot(recovered.bytes);
+    if (metadata.role === "founder" && snapshotRecord.groupId !== groupId) {
+      throw new Error("Committed MLS group does not match the requested founder group.");
+    }
+    metadata.groupId = snapshotRecord.groupId;
+    await restoreFromSnapshot(snapshotRecord.providerSnapshot, {
+      ...keyRecord,
+      groupId: snapshotRecord.groupId
+    });
+    if (keyRecord.groupId !== snapshotRecord.groupId) {
+      keyRecord = { ...keyRecord, groupId: snapshotRecord.groupId };
+      await writeKeyRecord(db, keyId, keyRecord);
+    }
     generation = recovered.generation;
     ready = true;
     return {
@@ -242,7 +290,7 @@ async function initialize(data) {
   await writeKeyRecord(db, keyId, keyRecord);
 
   const snapshot = provider.export_snapshot_bytes();
-  const envelope = await encryptSnapshot(snapshot);
+  const envelope = await encryptSnapshot(snapshot, metadata.groupId);
   generation = await commitEnvelope(envelope);
   ready = true;
   return { ready: true, restored: false, generation, publicKey, groupId };
@@ -279,15 +327,19 @@ async function sendMessage(data) {
 }
 
 
-async function persistCandidate(candidateProvider, candidateGroup, candidateIdentity, faultAt = null) {
+async function persistCandidate(
+  candidateProvider, candidateGroup, candidateIdentity, faultAt = null,
+  nextGroupId = metadata.groupId
+) {
   const snapshot = candidateProvider.export_snapshot_bytes();
-  const envelope = await encryptSnapshot(snapshot);
+  const envelope = await encryptSnapshot(snapshot, nextGroupId);
   const committedGeneration = await commitEnvelope(envelope, faultAt);
   // Publish the candidate state in this worker only after journal recovery
   // confirms the exact encrypted generation.
   provider = candidateProvider;
   group = candidateGroup;
   identity = candidateIdentity;
+  metadata.groupId = nextGroupId;
   generation = committedGeneration;
   return committedGeneration;
 }
@@ -344,9 +396,9 @@ async function joinGroup(data) {
   const ratchetTree = RatchetTree.from_bytes(new Uint8Array(data.ratchetTree));
   const candidateGroup = Group.join(candidateProvider, welcome, ratchetTree);
   const committedGeneration = await persistCandidate(
-    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
+    candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null,
+    nextGroupId
   );
-  metadata.groupId = nextGroupId;
   const db = await openKeyDatabase();
   const keyId = `${metadata.accountId}|${metadata.deviceId}`;
   const oldRecord = await readKeyRecord(db, keyId);
