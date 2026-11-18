@@ -368,6 +368,7 @@ async function addMember(data) {
     candidateProvider, candidateIdentity, keyPackage
   );
   candidateGroup.merge_pending_commit(candidateProvider);
+  const commit = new Uint8Array(addMessages.commit);
   const welcome = new Uint8Array(addMessages.welcome);
   const ratchetTree = new Uint8Array(candidateGroup.export_ratchet_tree().to_bytes());
   const committedGeneration = await persistCandidate(
@@ -375,6 +376,7 @@ async function addMember(data) {
   );
   return {
     generation: committedGeneration,
+    commit: commit.buffer,
     welcome: welcome.buffer,
     ratchetTree: ratchetTree.buffer
   };
@@ -436,7 +438,7 @@ async function handleMessage(data) {
     }
     if (data.action === "add-member") {
       const result = await addMember(data);
-      self.postMessage({ id, ok: true, ...result }, [result.welcome, result.ratchetTree]);
+      self.postMessage({ id, ok: true, ...result }, [result.commit, result.welcome, result.ratchetTree]);
       return;
     }
     if (data.action === "join") {
