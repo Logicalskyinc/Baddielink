@@ -109,6 +109,17 @@ try {
         throw new Error("Recipient failed to decrypt and commit first group message.");
       }
 
+      // Restart the recipient after its receive state has been durably committed.
+      // The member starts with no trusted group ID; the authenticated snapshot
+      // must supply the group binding during recovery.
+      bobWorker.terminate();
+      bobWorker = startRuntime();
+      const bobRestored = await bobWorker.request("initialize", bobArgs);
+      if (!bobRestored.ready || !bobRestored.restored ||
+          bobRestored.generation !== 4 || bobRestored.groupId !== groupId) {
+        throw new Error("Recipient worker restart did not restore its authenticated group state.");
+      }
+
       aliceWorker.terminate();
       aliceWorker = startRuntime();
       const aliceRestored = await aliceWorker.request("initialize", aliceArgs);
