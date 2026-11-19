@@ -6,7 +6,7 @@ mod utils;
 
 use js_sys::Uint8Array;
 use openmls::{
-    credentials::{BasicCredential, CredentialType, CredentialWithKey},
+    credentials::{BasicCredential, Credential, CredentialType, CredentialWithKey},
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut},
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     key_packages::KeyPackage as OpenMlsKeyPackage,
@@ -158,6 +158,19 @@ impl Identity {
     }
 }
 
+
+/// Bind a staged Welcome's local leaf to the exact credential and signature
+/// key held by this worker's restored identity.
+fn welcome_own_leaf_matches_identity(
+    credential: &Credential,
+    signature_key: &[u8],
+    local_identity: &Identity,
+) -> bool {
+    credential.serialized_content()
+        == local_identity.credential_with_key.credential.serialized_content()
+        && signature_key == local_identity.keypair.public()
+}
+
 #[wasm_bindgen]
 pub struct Group {
     mls_group: MlsGroup,
@@ -242,11 +255,11 @@ impl Group {
         let own_leaf = staged_welcome
             .own_leaf_node()
             .ok_or_else(|| JsError::new("Welcome does not contain the joining device's own leaf."))?;
-        if own_leaf.credential().serialized_content()
-            != local_identity.credential_with_key.credential.serialized_content()
-            || own_leaf.signature_key().as_slice()
-                != local_identity.keypair.public()
-        {
+        if !welcome_own_leaf_matches_identity(
+            own_leaf.credential(),
+            own_leaf.signature_key().as_slice(),
+            local_identity,
+        ) {
             return Err(JsError::new(
                 "Welcome own-leaf credential or signature key does not match this local device.",
             ));
@@ -697,6 +710,35 @@ mod tests {
             bob,
             chess_club_bob,
         )
+    }
+
+    #[test]
+    fn staged_welcome_identity_binding_rejects_wrong_credential_or_key() {
+        let provider = Provider::new();
+        let bob = Identity::new(&provider, "opaque-device-credential-bob")
+            .expect("Bob identity should initialize");
+        let credential = bob.credential_with_key.credential.clone();
+        let signature_key = bob.keypair.public();
+
+        assert!(welcome_own_leaf_matches_identity(
+            &credential,
+            signature_key,
+            &bob,
+        ));
+
+        let wrong_credential: Credential =
+            BasicCredential::new(b"another-device".to_vec()).into();
+        assert!(!welcome_own_leaf_matches_identity(
+            &wrong_credential,
+            signature_key,
+            &bob,
+        ));
+
+        assert!(!welcome_own_leaf_matches_identity(
+            &credential,
+            &[0u8; 32],
+            &bob,
+        ));
     }
 
     #[test]
