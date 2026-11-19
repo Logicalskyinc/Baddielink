@@ -237,6 +237,31 @@ begin
     raise exception 'device revocation was allowed while an MLS authorization was pending';
   end if;
 
+  -- A room suspension/archive cannot advance the roster version while
+  -- this consumed authorization owns the room reservation.
+  begin
+    update public.spaces set status = 'suspended'
+     where id = '20000000-0000-4000-8000-000000000001';
+    raise exception 'room status changed while an MLS reservation was pending';
+  exception when raise_exception then
+    if sqlerrm not like '%MLS membership authorization is pending%' then
+      raise;
+    end if;
+  end;
+
+  if not exists (
+    select 1 from public.spaces
+     where id = '20000000-0000-4000-8000-000000000001'
+       and status = 'active'
+  ) or not exists (
+    select 1 from public.mls_space_groups
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and pending_authorization_id = v_auth_id
+       and roster_version = v_version
+  ) then
+    raise exception 'rejected room status change modified the pending MLS reservation';
+  end if;
+
   v_result := public.mls_finalize_membership_authorization(
     v_auth_id,
     '10000000-0000-4000-8000-000000000001',
