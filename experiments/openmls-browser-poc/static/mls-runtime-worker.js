@@ -414,7 +414,7 @@ async function joinGroup(data) {
   );
   const welcome = new Uint8Array(data.welcome);
   const ratchetTree = RatchetTree.from_bytes(new Uint8Array(data.ratchetTree));
-  const candidateGroup = Group.join(candidateProvider, welcome, ratchetTree);
+  const candidateGroup = Group.join(candidateProvider, candidateIdentity, welcome, ratchetTree);
   const committedGeneration = await persistCandidate(
     candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null,
     nextGroupId
