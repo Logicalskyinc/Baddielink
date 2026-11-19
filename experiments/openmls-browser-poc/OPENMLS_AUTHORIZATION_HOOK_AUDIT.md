@@ -103,6 +103,17 @@ Required change before multi-device work:
 - Verify that statement on all admission/update paths above.
 - Keep account and device mapping private to the authenticated application/registration service; do not encode account PII in a credential visible to group members.
 
+
+## Implementation update: staged Welcome local-device binding
+
+The experimental WASM wrapper now keeps the Welcome in OpenMLS' staged form long enough to inspect the joining device's own leaf before calling `StagedWelcome::into_group`. It compares both:
+- the staged own-leaf credential bytes against the restored local worker identity's credential; and
+- the staged own-leaf signature public key against the restored local worker identity's signing public key.
+
+A mismatch rejects the Welcome before a joined `Group` is returned to the worker, so the worker cannot persist that candidate group. A native unit test covers the exact-match case and rejects a mismatched credential and mismatched signature key.
+
+This is a local-device binding check, not full registration authorization. It does not authenticate the Welcome sender, validate every other roster member against a server registration service, check device revocation, or authorize membership in the requested room. The production trust store remains empty, and no production issuer/roster service exists. The worker still needs the remaining staged proposal and Commit authorization boundaries before membership admission can be considered enforced.
+
 ## Architectural conclusion
 
 There is no single OpenMLS callback that automatically validates BaddieLink account/device registration. The correct integration is an application-controlled gate at each boundary:
