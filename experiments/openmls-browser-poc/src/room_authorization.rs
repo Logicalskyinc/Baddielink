@@ -308,7 +308,7 @@ mod tests {
         let mut second = valid_claims();
         if let (Value::Map(a), Value::Map(b)) = (&mut second, &first) {
             a.reverse();
-            assert_eq!(canonical_bytes(&Value::Map(a.clone())).unwrap(), canonical_bytes(b).unwrap());
+            assert_eq!(canonical_bytes(&Value::Map(a.clone())).unwrap(), canonical_bytes(&Value::Map(b.clone())).unwrap());
         } else {
             panic!("test claims must be maps");
         }
