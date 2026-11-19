@@ -27,7 +27,9 @@ create table public.mls_devices (
     (status = 'active' and revoked_at is null)
     or (status = 'revoked' and revoked_at is not null)
   ),
-  constraint mls_devices_id_user_unique unique (id, user_id)
+  constraint mls_devices_id_user_unique unique (id, user_id),
+  constraint mls_devices_exact_binding_unique
+    unique (id, user_id, credential_id, signature_public_key)
 );
 
 create unique index mls_devices_user_device_unique
@@ -137,8 +139,8 @@ create table public.mls_space_device_roster (
     foreign key (space_id) references public.mls_space_groups(space_id)
     on delete cascade,
   constraint mls_space_device_roster_device_fk
-    foreign key (device_id, user_id)
-    references public.mls_devices(id, user_id)
+    foreign key (device_id, user_id, credential_id, signature_public_key)
+    references public.mls_devices(id, user_id, credential_id, signature_public_key)
     on delete restrict
 );
 
@@ -310,7 +312,7 @@ create table public.mls_membership_authorizations (
   group_id uuid not null,
   actor_user_id uuid not null,
   actor_device_id uuid not null,
-  operation text not null check (operation in ('add', 'update', 'remove')),
+  operation text not null check (operation in ('add', 'remove')),
   target_user_id uuid not null,
   target_device_id uuid not null,
   target_credential_id bytea not null
@@ -336,8 +338,13 @@ create table public.mls_membership_authorizations (
     references public.mls_devices (id, user_id)
     on delete restrict,
   constraint mls_authorization_target_device_fk
-    foreign key (target_device_id, target_user_id)
-    references public.mls_devices (id, user_id)
+    foreign key (
+      target_device_id, target_user_id,
+      target_credential_id, target_signature_public_key
+    )
+    references public.mls_devices (
+      id, user_id, credential_id, signature_public_key
+    )
     on delete restrict
 );
 
@@ -573,11 +580,25 @@ begin
     return false;
   end if;
 
-  -- A consumed retry is valid only while its reservation still owns this
-  -- room, or after the exact authorization has already been finalized.
+  -- A consumed retry remains idempotent after finalization has advanced the
+  -- roster version and cleared the reservation. Actor/device/digest matched
+  -- exactly above before this branch can acknowledge success.
   if v_consumed_at is not null then
-    return v_pending_authorization_id = p_authorization_id;
+    if v_applied_at is not null then
+      return true;
+    end if;
+    return coalesce(v_space_active, false)
+      and v_current_roster_version = v_roster_version
+      and v_pending_authorization_id = p_authorization_id;
   end if;
+
+  -- Serialize authorization against concurrent device revocation. Lock both
+  -- registered device rows in UUID order to avoid cross-room lock inversion.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for share;
 
   select true
     into v_actor_can_manage
@@ -621,7 +642,7 @@ begin
     return false;
   end if;
 
-  -- Add/update targets must still be active and retain the exact immutable
+  -- Add targets must still be active and retain the exact immutable
   -- credential/key binding at consume time. A removal may target a revoked
   -- device because revocation must not prevent removing it from a room.
   select exists (
@@ -634,8 +655,8 @@ begin
        and r.signature_public_key = v_target_signature_public_key
   ) into v_target_is_in_roster;
 
-  if v_operation in ('add', 'update') then
-    -- Device admission/update cannot bypass the ordinary BaddieLink
+  if v_operation = 'add' then
+    -- Device admission cannot bypass the ordinary BaddieLink
     -- account-level room-membership gate.
     select true
       into v_target_member_active
@@ -670,7 +691,7 @@ begin
     if not found or not coalesce(v_target_device_active, false) then
       return false;
     end if;
-  elsif v_operation in ('update', 'remove') then
+  elsif v_operation = 'remove' then
     if not coalesce(v_target_is_in_roster, false) then
       return false;
     end if;
@@ -687,22 +708,6 @@ begin
       end if;
     end if;
 
-    if v_operation = 'update' then
-      select (
-        d.status = 'active'
-        and d.revoked_at is null
-        and d.credential_id = v_target_credential_id
-        and d.signature_public_key = v_target_signature_public_key
-      )
-        into v_target_device_active
-        from public.mls_devices d
-       where d.id = v_target_device_id
-         and d.user_id = v_target_user_id;
-
-      if not found or not coalesce(v_target_device_active, false) then
-        return false;
-      end if;
-    end if;
   end if;
 
   update public.mls_space_groups
@@ -819,6 +824,14 @@ begin
     return false;
   end if;
 
+  -- Hold the same deterministic device locks through finalization so a
+  -- concurrent revocation cannot invalidate the authorization mid-commit.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for share;
+
   select (d.status = 'active' and d.revoked_at is null)
     into v_actor_device_active
     from public.mls_devices d
@@ -843,7 +856,7 @@ begin
     return false;
   end if;
 
-  if v_operation in ('add', 'update') then
+  if v_operation = 'add' then
     select true
       into v_target_member_active
       from public.space_memberships sm
@@ -879,18 +892,6 @@ begin
       v_space_id, v_target_user_id, v_target_device_id,
       v_target_credential_id, v_target_signature_public_key
     );
-  elsif v_operation = 'update' then
-    update public.mls_space_device_roster
-       set credential_id = v_target_credential_id,
-           signature_public_key = v_target_signature_public_key,
-           updated_at = clock_timestamp()
-     where space_id = v_space_id
-       and user_id = v_target_user_id
-       and device_id = v_target_device_id;
-
-    if not found then
-      return false;
-    end if;
   elsif v_operation = 'remove' then
     delete from public.mls_space_device_roster
      where space_id = v_space_id
