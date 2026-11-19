@@ -6,7 +6,9 @@ declare
   v_version bigint;
   v_actor_device uuid;
   v_target_device uuid;
+  v_target_device_2 uuid;
   v_auth_id uuid;
+  v_auth_id_2 uuid;
   v_digest bytea := decode(repeat('ab', 32), 'hex');
   v_wrong_digest bytea := decode(repeat('cd', 32), 'hex');
   v_result boolean;
@@ -133,7 +135,44 @@ begin
     v_wrong_digest
   );
   if v_result is not false then raise exception 'wrong digest was accepted'; end if;
-end $$;
+
+  -- A target device revoked after authorization issuance must not be added.
+  insert into public.mls_devices
+    (user_id, device_id, credential_id, signature_public_key)
+  values
+    ('10000000-0000-4000-8000-000000000003', decode(repeat('13',16),'hex'),
+     decode(repeat('23',32),'hex'), decode(repeat('33',32),'hex'))
+  returning id into v_target_device_2;
+
+  insert into public.mls_membership_authorizations (
+    space_id, group_id, actor_user_id, actor_device_id, operation,
+    target_user_id, target_device_id, target_credential_id,
+    target_signature_public_key, roster_version, commit_digest, expires_at
+  )
+  select
+    g.space_id, g.group_id,
+    '10000000-0000-4000-8000-000000000001', v_actor_device, 'add',
+    '10000000-0000-4000-8000-000000000003', v_target_device_2,
+    decode(repeat('23',32),'hex'), decode(repeat('33',32),'hex'),
+    g.roster_version, v_wrong_digest, clock_timestamp() + interval '90 seconds'
+  from public.mls_space_groups g
+  where g.space_id = '20000000-0000-4000-8000-000000000001'
+  returning id into v_auth_id_2;
+
+  update public.mls_devices
+     set status = 'revoked', revoked_at = clock_timestamp()
+   where id = v_target_device_2;
+
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id_2,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_wrong_digest
+  );
+  if v_result is not false then
+    raise exception 'authorization for revoked target device was accepted';
+  end if;
+end $;
 
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
