@@ -466,6 +466,15 @@ begin
     return false;
   end if;
 
+  -- Lock both registered device rows in deterministic UUID order. This
+  -- serializes authorization against concurrent device revocation without
+  -- introducing actor/target lock-order deadlocks across different rooms.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for update;
+
   select exists (
     select 1
       from public.mls_space_device_roster r
@@ -666,6 +675,14 @@ begin
      or v_pending_authorization_id <> p_authorization_id then
     return false;
   end if;
+
+  -- Use the same deterministic device lock order as consume. A device
+  -- revocation cannot race finalization after the pending reservation.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for update;
 
   select (d.status = 'active' and d.revoked_at is null)
     into v_actor_device_active
