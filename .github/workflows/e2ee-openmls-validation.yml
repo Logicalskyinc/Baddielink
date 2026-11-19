@@ -45,9 +45,17 @@ jobs:
       - name: Resolve and record dependency lockfile
         run: cargo generate-lockfile
 
-      - name: Compile Rust crate for WebAssembly
+      - name: Compile default production WASM without test admission APIs
         run: |
-          wasm-pack build --target web --out-dir pkg --out-name openmls_wasm --locked
+          wasm-pack build --target web --out-dir pkg-production --out-name openmls_wasm --locked
+          if grep -q "merge_staged_commit_for_browser_test" pkg-production/openmls_wasm.js; then
+            echo "Test-only staged Commit merge API leaked into the default WASM build."
+            exit 1
+          fi
+
+      - name: Compile isolated browser-test WASM
+        run: |
+          wasm-pack build --target web --features browser-test-admission --out-dir pkg --out-name openmls_wasm --locked
           cp static/index.html pkg/index.html
           cp static/mls-lock.js pkg/mls-lock.js
           cp static/opfs-storage-worker.js pkg/opfs-storage-worker.js
