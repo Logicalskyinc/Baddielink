@@ -94,6 +94,38 @@ fn map_claim<'a>(value: &'a Value, name: &str) -> Result<&'a Value, String> {
         .ok_or_else(|| format!("Missing attestation claim: {name}."))
 }
 
+fn validate_claim_set(value: &Value) -> Result<(), String> {
+    const REQUIRED: [&str; 12] = [
+        "v", "iss", "sub", "aud", "cred", "device",
+        "sig", "iat", "exp", "status", "rv", "jti",
+    ];
+    let entries = match value {
+        Value::Map(entries) => entries,
+        _ => return Err(fail("Attestation payload must be a CBOR map.")),
+    };
+    if entries.len() != REQUIRED.len() {
+        return Err(fail("Attestation payload contains missing or unexpected claims."));
+    }
+
+    let mut seen = std::collections::HashSet::with_capacity(entries.len());
+    for (key, _) in entries {
+        let name = match key {
+            Value::Text(name) => name.as_str(),
+            _ => return Err(fail("Attestation claim names must be text strings.")),
+        };
+        if !REQUIRED.contains(&name) {
+            return Err(fail("Attestation payload contains an unknown claim."));
+        }
+        if !seen.insert(name) {
+            return Err(fail("Attestation payload contains a duplicate claim."));
+        }
+    }
+    if REQUIRED.iter().any(|name| !seen.contains(name)) {
+        return Err(fail("Attestation payload is missing a required claim."));
+    }
+    Ok(())
+}
+
 fn text_claim(value: &Value, name: &str) -> Result<String, String> {
     match map_claim(value, name)? {
         Value::Text(text) => Ok(text.clone()),
@@ -162,6 +194,8 @@ pub fn verify_device_attestation(
     if canonical_cbor(&decoded)?.as_slice() != payload.as_slice() {
         return Err(fail("Attestation payload is not deterministic CBOR."));
     }
+
+    validate_claim_set(&decoded)?;
 
     let version = uint_claim(&decoded, "v")?;
     if version != 1 {
@@ -266,6 +300,26 @@ mod tests {
             public_key,
             issuer: "baddielink-test-issuer".into(),
         }], credential.to_vec())
+    }
+
+    #[test]
+    fn rejects_unknown_duplicate_and_non_text_claim_names() {
+        let unknown = Value::Map(vec![
+            (Value::Text("v".into()), Value::Integer(1.into())),
+            (Value::Text("unexpected".into()), Value::Integer(2.into())),
+        ]);
+        assert!(validate_claim_set(&unknown).is_err());
+
+        let duplicate = Value::Map(vec![
+            (Value::Text("v".into()), Value::Integer(1.into())),
+            (Value::Text("v".into()), Value::Integer(1.into())),
+        ]);
+        assert!(validate_claim_set(&duplicate).is_err());
+
+        let non_text = Value::Map(vec![
+            (Value::Integer(1.into()), Value::Integer(1.into())),
+        ]);
+        assert!(validate_claim_set(&non_text).is_err());
     }
 
     #[test]
