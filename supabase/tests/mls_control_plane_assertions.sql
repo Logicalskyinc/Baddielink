@@ -256,6 +256,16 @@ begin
     v_auth_id,
     '10000000-0000-4000-8000-000000000001',
     v_actor_device,
+    v_digest
+  );
+  if v_result is not true then
+    raise exception 'exact consume retry after finalization was not idempotent';
+  end if;
+
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
     v_wrong_digest
   );
   if v_result is not false then raise exception 'wrong digest was accepted'; end if;
