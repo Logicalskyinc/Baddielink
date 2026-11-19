@@ -233,3 +233,110 @@ pub fn verify_room_authorization(
         commit_digest, issued_at, expires_at,
     })
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_claims() -> Value {
+        let values = [
+            ("v", Value::Integer(1.into())),
+            ("iss", Value::Text("baddielink-test-issuer".into())),
+            ("aud", Value::Text(AUDIENCE.into())),
+            ("group", Value::Bytes(vec![1; 16])),
+            ("op", Value::Text("add".into())),
+            ("actor_sub", Value::Bytes(vec![2; 16])),
+            ("actor_device", Value::Bytes(vec![3; 16])),
+            ("target_sub", Value::Bytes(vec![4; 16])),
+            ("target_device", Value::Bytes(vec![5; 16])),
+            ("target_cred", Value::Bytes(vec![6; 32])),
+            ("target_sig", Value::Bytes(vec![7; 32])),
+            ("rv", Value::Integer(9.into())),
+            ("jti", Value::Bytes(vec![8; 16])),
+            ("digest", Value::Bytes(vec![10; 32])),
+            ("iat", Value::Integer(1_800_000_000u64.into())),
+            ("exp", Value::Integer(1_800_000_090u64.into())),
+        ];
+        Value::Map(values.into_iter().map(|(k, v)| (Value::Text(k.into()), v)).collect())
+    }
+
+    #[test]
+    fn accepts_exact_v1_claim_set() {
+        assert!(validate_exact_claims(&valid_claims()).is_ok());
+    }
+
+    #[test]
+    fn rejects_missing_claim() {
+        let mut value = valid_claims();
+        if let Value::Map(entries) = &mut value {
+            entries.retain(|(key, _)| key != &Value::Text("digest".into()));
+        }
+        assert!(validate_exact_claims(&value).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_claim_even_when_count_is_correct() {
+        let mut value = valid_claims();
+        if let Value::Map(entries) = &mut value {
+            entries[0].0 = Value::Text("unexpected".into());
+        }
+        assert!(validate_exact_claims(&value).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_claim_names() {
+        let mut value = valid_claims();
+        if let Value::Map(entries) = &mut value {
+            entries[1].0 = Value::Text("v".into());
+        }
+        assert!(validate_exact_claims(&value).is_err());
+    }
+
+    #[test]
+    fn rejects_non_text_claim_names() {
+        let mut value = valid_claims();
+        if let Value::Map(entries) = &mut value {
+            entries[0].0 = Value::Integer(0.into());
+        }
+        assert!(validate_exact_claims(&value).is_err());
+    }
+
+    #[test]
+    fn canonical_encoding_is_stable_and_order_independent() {
+        let first = valid_claims();
+        let mut second = valid_claims();
+        if let (Value::Map(a), Value::Map(b)) = (&mut second, &first) {
+            a.reverse();
+            assert_eq!(canonical_bytes(&Value::Map(a.clone())).unwrap(), canonical_bytes(b).unwrap());
+        } else {
+            panic!("test claims must be maps");
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_cbor_map_keys_during_canonicalization() {
+        let duplicate = Value::Map(vec![
+            (Value::Text("v".into()), Value::Integer(1.into())),
+            (Value::Text("v".into()), Value::Integer(1.into())),
+        ]);
+        assert!(canonical_bytes(&duplicate).is_err());
+    }
+
+    #[test]
+    fn rejects_wrong_claim_types_and_fixed_lengths() {
+        let mut wrong_type = valid_claims();
+        if let Value::Map(entries) = &mut wrong_type {
+            let entry = entries.iter_mut().find(|(k, _)| k == &Value::Text("rv".into())).unwrap();
+            entry.1 = Value::Text("9".into());
+        }
+        assert!(uint(&wrong_type, "rv").is_err());
+
+        let mut wrong_length = valid_claims();
+        if let Value::Map(entries) = &mut wrong_length {
+            let entry = entries.iter_mut().find(|(k, _)| k == &Value::Text("group".into())).unwrap();
+            entry.1 = Value::Bytes(vec![1; 15]);
+        }
+        assert!(fixed::<16>(&wrong_length, "group").is_err());
+    }
+}
