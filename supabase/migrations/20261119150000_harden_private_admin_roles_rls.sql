@@ -3,9 +3,6 @@
 
 ALTER TABLE private.admin_roles ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL PRIVILEGES ON TABLE private.admin_roles
-  FROM PUBLIC, anon, authenticated;
-
 DO $$
 DECLARE
   role_table_oid oid := 'private.admin_roles'::regclass;
