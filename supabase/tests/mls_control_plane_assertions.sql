@@ -89,6 +89,18 @@ begin
      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'))
   returning id into v_target_device;
 
+  -- Seed the already-established founder device in the authoritative MLS
+  -- roster. The target device is intentionally not present yet.
+  insert into public.mls_space_device_roster (
+    space_id, user_id, device_id, credential_id, signature_public_key
+  ) values (
+    '20000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    decode(repeat('21',32),'hex'),
+    decode(repeat('31',32),'hex')
+  );
+
   -- Return room to active and use the current roster version.
   update public.spaces set status = 'active'
    where id = '20000000-0000-4000-8000-000000000001';
@@ -127,6 +139,42 @@ begin
     v_digest
   );
   if v_result is not true then raise exception 'exact consume retry was not idempotent'; end if;
+
+  if not exists (
+    select 1 from public.mls_space_groups
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and pending_authorization_id = v_auth_id
+       and roster_version = v_version
+  ) then
+    raise exception 'consume did not reserve the room without prematurely changing roster version';
+  end if;
+
+  v_result := public.mls_finalize_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_digest
+  );
+  if v_result is not true then raise exception 'valid authorization finalization failed'; end if;
+
+  if not exists (
+    select 1 from public.mls_space_device_roster
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and device_id = v_target_device
+       and credential_id = decode(repeat('22',32),'hex')
+       and signature_public_key = decode(repeat('32',32),'hex')
+  ) then
+    raise exception 'finalization did not add the exact authorized target device';
+  end if;
+
+  if not exists (
+    select 1 from public.mls_space_groups
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and pending_authorization_id is null
+       and roster_version = v_version + 1
+  ) then
+    raise exception 'finalization did not advance and unlock the room roster';
+  end if;
 
   v_result := public.mls_consume_membership_authorization(
     v_auth_id,
