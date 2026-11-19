@@ -462,17 +462,20 @@ language plpgsql
 security definer
 set search_path = ''
 as $function$
+declare
+  v_pending_authorization_id uuid;
 begin
   if new.status is distinct from old.status then
-    -- A consumed authorization owns a room-level reservation until its exact
-    -- Commit is finalized. Reject status transitions rather than advancing
-    -- the roster version and stranding that reservation.
-    if exists (
-      select 1
-        from public.mls_space_groups g
-       where g.space_id = new.id
-         and g.pending_authorization_id is not null
-    ) then
+    -- Serialize status changes with consume/finalize on the room-group row.
+    -- The locking read observes a committed reservation after waiting, so a
+    -- status transition cannot race past an uncommitted consume.
+    select g.pending_authorization_id
+      into v_pending_authorization_id
+      from public.mls_space_groups g
+     where g.space_id = new.id
+     for update;
+
+    if v_pending_authorization_id is not null then
       raise exception 'Room status cannot change while an MLS membership authorization is pending';
     end if;
 
