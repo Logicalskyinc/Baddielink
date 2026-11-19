@@ -172,7 +172,7 @@ begin
   if v_result is not false then
     raise exception 'authorization for revoked target device was accepted';
   end if;
-end $;
+end $$;
 
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
