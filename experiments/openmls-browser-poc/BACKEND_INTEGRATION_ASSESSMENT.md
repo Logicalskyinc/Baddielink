@@ -1,6 +1,6 @@
 # BaddieLink E2EE backend integration assessment
 
-Status: repository design, migration source drafted, and read-only database inspection. The migration is not locally validated and this document does not authorize applying SQL or deploying Edge Functions.
+Status: repository design, migration source drafted, and read-only database inspection. The SQL draft is not a migration yet and this document does not authorize applying SQL or deploying Edge Functions.
 
 ## Verified database model
 
@@ -42,7 +42,7 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
-- [x] Draft repository-only migration source: `supabase/migrations/20261119150000_mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).
+- [x] Draft repository-only SQL source (kept outside migrations until CLI generation and validation): `supabase/drafts/mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).
 - [ ] Validate the migration against a disposable/local Supabase database. The current execution environment has no Supabase CLI, PostgreSQL client/server, or Docker runtime, so SQL execution and concurrency testing have not been performed.
 - [ ] Implement and test authenticated Edge Functions and atomic authorization consumption.
 - [ ] Implement worker integration and rejection matrix.
@@ -51,4 +51,4 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Explicit non-actions
 
-No live database schema was changed. The new migration exists only on the experimental GitHub branch and is not recorded as applied. No Edge Function was deployed. No Render deployment, production feature activation, or billing change was made.
+No live database schema was changed. The SQL draft is kept outside `supabase/migrations/` so it cannot be accidentally applied by a normal migration push. No Edge Function was deployed. No Render deployment, production feature activation, or billing change was made.
