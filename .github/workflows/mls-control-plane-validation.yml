@@ -1,6 +1,12 @@
 name: MLS control-plane migration validation
 
 on:
+  push:
+    branches: [feat/e2ee-browser-validation]
+    paths:
+      - "supabase/migrations/20261119150000_mls_control_plane_foundation.sql"
+      - "supabase/tests/mls_control_plane_*.sql"
+      - ".github/workflows/mls-control-plane-validation.yml"
   pull_request:
     branches: [main]
     paths:
