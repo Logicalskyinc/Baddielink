@@ -14,6 +14,7 @@ declare
   v_digest bytea := decode(repeat('ab', 32), 'hex');
   v_wrong_digest bytea := decode(repeat('cd', 32), 'hex');
   v_result boolean;
+  v_revocation_blocked boolean := false;
 begin
   -- Existing room is mapped exactly once at version 1.
   select group_id, roster_version into v_group_id, v_version
@@ -184,6 +185,17 @@ begin
        and roster_version = v_version
   ) then
     raise exception 'consume did not reserve the room without prematurely changing roster version';
+  end if;
+
+  begin
+    update public.mls_devices
+       set status = 'revoked'
+     where id = v_target_device;
+  exception when raise_exception then
+    v_revocation_blocked := true;
+  end;
+  if not v_revocation_blocked then
+    raise exception 'device revocation was allowed while an MLS authorization was pending';
   end if;
 
   v_result := public.mls_finalize_membership_authorization(
