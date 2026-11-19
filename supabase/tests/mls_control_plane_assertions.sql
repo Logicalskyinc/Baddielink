@@ -399,8 +399,7 @@ begin
   if not v_account_delete_blocked then
     raise exception 'account deletion bypassed MLS device/audit cleanup';
   end if;
-end $;
-
+end $$;
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
 begin
