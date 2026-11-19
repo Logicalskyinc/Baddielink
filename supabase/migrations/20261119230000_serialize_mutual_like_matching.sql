@@ -13,8 +13,8 @@ DECLARE
   first_user uuid;
   second_user uuid;
 BEGIN
-  first_user := pg_catalog.least(NEW.sender_id, NEW.receiver_id);
-  second_user := pg_catalog.greatest(NEW.sender_id, NEW.receiver_id);
+  first_user := LEAST(NEW.sender_id, NEW.receiver_id);
+  second_user := GREATEST(NEW.sender_id, NEW.receiver_id);
 
   PERFORM pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended(
