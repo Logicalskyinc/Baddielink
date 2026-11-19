@@ -441,13 +441,23 @@ async function receiveMessage(data) {
   // The explicit browser-test build has a test-only merge escape hatch so the
   // integration suite can continue exercising Welcome and membership flows.
   const stagedChanges = candidateGroup.pending_commit_add_update_bindings();
-  const mergeForBrowserTest = candidateGroup.merge_staged_commit_for_browser_test;
-  if (typeof mergeForBrowserTest !== "function") {
-    throw new Error(
-      "MLS Commit is staged but cannot be merged: device authorization is not configured in this build."
-    );
+  if (stagedChanges.length > 0) {
+    // Membership-changing Commits are accepted only in the isolated browser
+    // test build. Production artifacts intentionally omit this escape hatch
+    // until an authenticated device-registration/roster service is available.
+    const mergeForBrowserTest = candidateGroup.merge_staged_commit_for_browser_test;
+    if (typeof mergeForBrowserTest !== "function") {
+      throw new Error(
+        "MLS membership Commit rejected: authenticated device authorization is not configured."
+      );
+    }
+    mergeForBrowserTest.call(candidateGroup, candidateProvider);
+  } else {
+    // Ordinary commits without membership changes remain usable in the
+    // default build. The Rust method independently checks all three proposal
+    // classes before merging; page-provided data cannot bypass that check.
+    candidateGroup.merge_staged_commit_if_no_membership_change(candidateProvider);
   }
-  mergeForBrowserTest.call(candidateGroup, candidateProvider);
 
   const committedGeneration = await persistCandidate(
     candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
