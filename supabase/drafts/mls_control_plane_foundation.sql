@@ -595,9 +595,14 @@ begin
   select exists (
     select 1
       from public.mls_space_device_roster r
+      join public.mls_devices d
+        on d.id = r.device_id
+       and d.user_id = r.user_id
      where r.space_id = v_space_id
        and r.user_id = v_actor_user_id
        and r.device_id = v_actor_device_id
+       and r.credential_id = d.credential_id
+       and r.signature_public_key = d.signature_public_key
   ) into v_actor_is_in_roster;
 
   if not coalesce(v_actor_is_in_roster, false) then
