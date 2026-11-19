@@ -58,6 +58,9 @@ jobs:
       - name: Run native Rust tests
         run: cargo test --locked
 
+      - name: Verify explicit test-only issuer trust configuration
+        run: cargo test --locked --features attestation-test-issuer
+
       - name: Install Node.js and Playwright
         uses: actions/setup-node@v4
         with:
