@@ -228,9 +228,9 @@ revoke all on public.mls_devices from public, anon, authenticated;
 revoke all on public.mls_space_groups from public, anon, authenticated;
 revoke all on public.mls_membership_authorizations from public, anon, authenticated;
 
-grant select, insert, update, delete on public.mls_devices to service_role;
-grant select, insert, update, delete on public.mls_space_groups to service_role;
-grant select, insert, update on public.mls_membership_authorizations to service_role;
+grant select, insert, update on public.mls_devices to service_role;
+grant select on public.mls_space_groups to service_role;
+grant select, insert on public.mls_membership_authorizations to service_role;
 
 -- Roster version updates are performed by triggers, not client-callable RPCs.
 create or replace function private.mls_bump_space_roster_version(p_space_id uuid)
