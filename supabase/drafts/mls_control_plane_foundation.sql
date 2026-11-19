@@ -509,7 +509,7 @@ begin
     return false;
   end if;
 
-  -- Add/update targets must still be active and retain the exact immutable
+  -- Add targets must still be active and retain the exact immutable
   -- credential/key binding at consume time. A removal may target a revoked
   -- device because revocation must not prevent removing it from a room.
   select exists (
