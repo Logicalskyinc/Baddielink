@@ -422,9 +422,9 @@ impl Group {
         let Some(staged) = self.pending_staged_commit.as_ref() else {
             return Ok(false);
         };
-        if !staged.add_proposals().is_empty()
-            || !staged.update_proposals().is_empty()
-            || !staged.remove_proposals().is_empty()
+        if staged.add_proposals().next().is_some()
+            || staged.update_proposals().next().is_some()
+            || staged.remove_proposals().next().is_some()
         {
             return Err(JsError::new(
                 "MLS membership Commit requires authenticated device authorization.",
