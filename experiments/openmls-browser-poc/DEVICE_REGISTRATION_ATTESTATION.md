@@ -147,7 +147,28 @@ All authorization failures are fail-closed:
 7. Add browser tests for two devices on one account, single-device revocation, account-wide room removal, replayed/expired/revoked attestations, stale status, and new-device no-history behavior.
 8. Run the complete existing Rust/WASM/Chromium/OPFS validation workflow.
 
-## 11. Explicit non-goals and current state
+## 11. Current implementation status and admission gate
+
+The current branch has implemented the following pieces:
+
+- A COSE_Sign1 ES256 verifier with a caller-supplied trusted-issuer list at the Rust-module level.
+- Strict version-1 payload claim-set validation: exactly the 12 required claims, text claim names only, and no duplicate or unknown claims.
+- OpenMLS KeyPackage deserialization with trailing-byte rejection.
+- Extraction of the BasicCredential identity and signature public key from the same parsed KeyPackage object.
+- OpenMLS cryptographic validation of the KeyPackage before the extracted binding is returned.
+- Native tests for KeyPackage tampering/trailing bytes and attestation signature, claim, audience, credential, key, expiry, status, and roster-version failures.
+
+These pieces are **not yet connected into an admission authorization decision**. In particular:
+
+- The browser worker's `add-member` path currently calls `KeyPackage.from_bytes()` and then `Group.propose_and_commit_add()`. The first call validates MLS cryptographic structure and signatures; it does not validate a device-registration attestation.
+- The worker does not yet obtain an authenticated roster version or device-status response.
+- No production issuer key, trust-store distribution mechanism, or registration service exists.
+- The verifier's current trusted-issuer argument is not an acceptable browser-facing configuration interface. A caller must never be allowed to supply the keys that establish its own trust.
+- Therefore, a KeyPackage accepted by the current experimental `add-member` path is **not proven to belong to an authorized BaddieLink account/device**.
+
+Do not treat the current path as production-safe or enable it for real private-group admission. The next implementation gate is to introduce an internal, build-controlled trust-store interface that cannot be overridden by page messages, keep the production trust store empty until an issuer is established, and then enforce attestation plus fresh roster authorization before any MLS membership mutation or persistence. Browser test issuer material must remain isolated to a dedicated test build and must never be present in production WASM assets.
+
+## 12. Explicit non-goals and current state
 
 This specification does not create a production registration service, issuer key store, trust-store distribution mechanism, revocation API, Supabase schema, or Render service. It does not implement a production OpenMLS StorageProvider or resolve same-origin XSS risk. The dedicated worker remains an execution-isolation mechanism, not a security boundary against malicious same-origin JavaScript.
 
