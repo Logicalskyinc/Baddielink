@@ -32,8 +32,8 @@ Before a membership-changing MLS Commit is merged, the server must authorize the
 The authorization must bind:
 - Opaque MLS group identifier.
 - Authenticated acting account and device.
-- Operation: add, update, or remove.
-- Target device/account and exact credential/signature-key binding for add/update.
+- Operation: add or remove. Update proposals are rejected until a separately designed and tested device-rekey protocol exists.
+- Target device/account and exact registered credential/signature-key binding for add. Remove targets are resolved against the current room roster.
 - Target leaf identity/index binding for remove, resolved against the authoritative current roster rather than trusted from the browser.
 - Current server-side roster version.
 - A unique, single-use authorization identifier.
@@ -57,7 +57,7 @@ The current authorization record represents exactly one membership proposal per 
 
 Authorization consumption is a reservation, not the final roster update. Under a transaction, the server locks the mapped room, checks the current roster version, verifies that no other authorization is pending, verifies that the actor has an active owner membership and an admitted active device, and checks the operation-specific target against the current device roster. It then records the single pending authorization for that room. This matches the existing BaddieLink owner-only membership-management policy; moderators are not granted MLS membership authority until a separate permission policy exists. The server must also prevent removal of the final registered owner device from a room.
 
-The browser then merges the already-authorized staged Commit into its candidate group and durably journals the candidate. Only after that succeeds does it call `POST /api/mls/rooms/{groupId}/membership-authorizations/{authorizationId}/finalize`. The server applies the corresponding add/update/remove to the device roster, increments the roster version, clears the pending authorization, and marks the authorization applied in one transaction.
+The browser then merges the already-authorized staged Commit into its candidate group and durably journals the candidate. Only after that succeeds does it call `POST /api/mls/rooms/{groupId}/membership-authorizations/{authorizationId}/finalize`. The server applies the corresponding add/remove to the device roster, increments the roster version, clears the pending authorization, and marks the authorization applied in one transaction.
 
 An exact consume retry is accepted only while that authorization still owns the room reservation, or after it has been finalized. A different authorization is rejected while a reservation is pending. If the worker crashes after consume, it must recover the same authorization and exact Commit; it must not request a new authorization for a different digest. If finalization cannot complete because the roster version changed, room/account membership changed, or an authorization invariant no longer holds, the room remains fail-closed and requires an explicit server-side reconciliation procedure. Device revocation is blocked while a consumed authorization is pending so the in-flight operation cannot be invalidated halfway through. Never silently clear a pending reservation.
 
@@ -188,7 +188,7 @@ For every rejected case, assert that:
 The experimental branch currently has:
 - A strict COSE_Sign1 ES256 device-attestation verifier.
 - An internal build-controlled issuer trust store with an empty default production configuration.
-- Staged MLS Commit inspection for Add, Update, and Remove.
+- Staged MLS Commit inspection for Add, Update, and Remove, with Update rejected until the rekey protocol exists.
 - Production/default worker behavior that rejects membership-changing incoming Commits.
 - A separately compiled browser-test admission path for lifecycle tests.
 
