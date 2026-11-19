@@ -11,6 +11,9 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+# Explicitly opt-in issuer key for isolated browser/native test artifacts only.
+# Production/default builds must never enable this feature.
+attestation-test-issuer = []
 extensions-draft = [
     "openmls/extensions-draft",
     "openmls_rust_crypto/extensions-draft",
