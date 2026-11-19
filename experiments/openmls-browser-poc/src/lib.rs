@@ -360,7 +360,7 @@ impl Group {
     /// Return credential/signature-key bindings for Add and Update proposals
     /// in the currently staged Commit. These are authenticated MLS objects,
     /// but the returned bindings are not an application authorization decision.
-    pub fn pending_commit_add_update_bindings(&self) -> Result<JsValue, JsError> {
+    pub fn pending_commit_membership_bindings(&self) -> Result<JsValue, JsError> {
         let changes = Array::new();
         let Some(staged) = self.pending_staged_commit.as_ref() else {
             return Ok(changes.into());
