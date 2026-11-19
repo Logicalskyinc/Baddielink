@@ -238,12 +238,12 @@ begin
       p_space_id, p_user_id, p_device_id, p_credential_id, p_signature_public_key
     );
 
-    update public.mls_space_groups
-       set roster_version = roster_version + 1,
+    update public.mls_space_groups as g
+       set roster_version = g.roster_version + 1,
            updated_at = clock_timestamp()
-     where space_id = p_space_id
-       and group_id = v_group_id
-    returning mls_space_groups.roster_version into v_roster_version;
+     where g.space_id = p_space_id
+       and g.group_id = v_group_id
+    returning g.roster_version into v_roster_version;
 
   else
     select exists (
