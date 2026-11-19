@@ -93,6 +93,76 @@ begin
      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'))
   returning id into v_target_device;
 
+  -- A public signing key cannot be registered to two devices/accounts.
+  begin
+    insert into public.mls_devices
+      (user_id, device_id, credential_id, signature_public_key)
+    values
+      ('10000000-0000-4000-8000-000000000002', decode(repeat('13',16),'hex'),
+       decode(repeat('23',32),'hex'), decode(repeat('32',32),'hex'));
+    raise exception 'duplicate MLS signing public key was accepted';
+  exception when unique_violation then
+    null;
+  end;
+
+  -- The room roster must reference the exact credential and signing key
+  -- registered for a device, not merely a matching device/user UUID.
+  begin
+    insert into public.mls_space_device_roster (
+      space_id, user_id, device_id, credential_id, signature_public_key
+    ) values (
+      '20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000003',
+      v_target_device,
+      decode(repeat('ff',32),'hex'),
+      decode(repeat('ee',32),'hex')
+    );
+    raise exception 'room roster accepted a credential/key mismatch';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  -- Authorization targets must also reference the exact registered key pair.
+  begin
+    insert into public.mls_membership_authorizations (
+      space_id, group_id, actor_user_id, actor_device_id, operation,
+      target_user_id, target_device_id, target_credential_id,
+      target_signature_public_key, roster_version, commit_digest, expires_at
+    )
+    select
+      g.space_id, g.group_id,
+      '10000000-0000-4000-8000-000000000001', v_actor_device, 'add',
+      '10000000-0000-4000-8000-000000000003', v_target_device,
+      decode(repeat('ff',32),'hex'), decode(repeat('ee',32),'hex'),
+      g.roster_version, v_digest, clock_timestamp() + interval '90 seconds'
+    from public.mls_space_groups g
+    where g.space_id = '20000000-0000-4000-8000-000000000001';
+    raise exception 'authorization accepted a mismatched target credential/key';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  -- Device-key replacement is intentionally not an authorization operation
+  -- until a separate rekey protocol exists. It must fail at the schema gate.
+  begin
+    insert into public.mls_membership_authorizations (
+      space_id, group_id, actor_user_id, actor_device_id, operation,
+      target_user_id, target_device_id, target_credential_id,
+      target_signature_public_key, roster_version, commit_digest, expires_at
+    )
+    select
+      g.space_id, g.group_id,
+      '10000000-0000-4000-8000-000000000001', v_actor_device, 'update',
+      '10000000-0000-4000-8000-000000000003', v_target_device,
+      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'),
+      g.roster_version, v_digest, clock_timestamp() + interval '90 seconds'
+    from public.mls_space_groups g
+    where g.space_id = '20000000-0000-4000-8000-000000000001';
+    raise exception 'unsupported MLS update authorization was accepted';
+  exception when check_violation then
+    null;
+  end;
+
   -- Seed the already-established founder device in the authoritative MLS
   -- roster. The target device is intentionally not present yet.
   insert into public.mls_space_device_roster (
@@ -224,6 +294,18 @@ begin
        and roster_version = v_version + 1
   ) then
     raise exception 'finalization did not advance and unlock the room roster';
+  end if;
+
+  -- Exact retry after finalization remains idempotent despite the incremented
+  -- roster version and cleared pending authorization.
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_digest
+  );
+  if v_result is not true then
+    raise exception 'exact consume retry after finalization was not idempotent';
   end if;
 
   v_result := public.mls_consume_membership_authorization(
