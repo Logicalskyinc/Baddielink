@@ -461,7 +461,7 @@ begin
      where sm.space_id = v_space_id
        and sm.user_id = v_actor_user_id
        and sm.status = 'active'
-       and sm.role in ('owner', 'moderator')
+       and sm.role = 'owner'
   ) into v_actor_can_manage;
 
   if not coalesce(v_actor_can_manage, false) then
