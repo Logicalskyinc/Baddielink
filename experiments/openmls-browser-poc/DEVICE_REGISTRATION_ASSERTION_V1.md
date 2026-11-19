@@ -1,5 +1,7 @@
 # Device Registration Assertion v1
 
+> **Superseded design:** This earlier proposal used EdDSA and an integer-keyed assertion payload. It is not compatible with the implemented verifier and is no longer the selected prototype profile. The canonical profile is documented in [DEVICE_REGISTRATION_ATTESTATION.md](./DEVICE_REGISTRATION_ATTESTATION.md): COSE_Sign1 ES256, deterministic CBOR, and the 12 named claims. Do not implement or issue this superseded format. A future protocol change must be versioned and update both verifier and fixtures together.
+
 **Status:** Proposed protocol contract for the isolated E2EE prototype. Not implemented. Not approved for production.
 
 ## 1. Security objective
