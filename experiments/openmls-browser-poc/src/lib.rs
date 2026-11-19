@@ -694,7 +694,7 @@ mod tests {
             .expect("generated KeyPackage should validate");
         assert_eq!(validated.credential().serialized_content(), b"opaque-device-credential-001");
         assert_eq!(binding.credential_id, b"opaque-device-credential-001");
-        assert_eq!(binding.signature_key, bob.keypair.public());
+        assert_eq!(binding.signature_key, bob.keypair.public().as_slice());
 
         let mut tampered = bytes;
         let last = tampered.len() - 1;
