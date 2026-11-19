@@ -37,6 +37,47 @@ create unique index mls_devices_one_active_device_id
 create index mls_devices_user_status_idx
   on public.mls_devices (user_id, status);
 
+-- Device identity and public-key bindings are immutable. A replacement key
+-- must be registered as a new device; an old device can only be revoked.
+create or replace function private.mls_protect_device_binding()
+returns trigger
+language plpgsql
+set search_path = ''
+as $function$
+begin
+  if new.user_id is distinct from old.user_id
+     or new.device_id is distinct from old.device_id
+     or new.credential_id is distinct from old.credential_id
+     or new.signature_public_key is distinct from old.signature_public_key
+     or new.registered_at is distinct from old.registered_at
+     or new.created_at is distinct from old.created_at then
+    raise exception 'MLS device identity and key binding are immutable';
+  end if;
+
+  if old.status = 'revoked' and new.status <> 'revoked' then
+    raise exception 'A revoked MLS device cannot be reactivated';
+  end if;
+
+  if old.status = 'active' and new.status = 'revoked' then
+    new.revoked_at := coalesce(new.revoked_at, clock_timestamp());
+  elsif new.status = 'active' then
+    new.revoked_at := null;
+  elsif new.revoked_at is distinct from old.revoked_at then
+    raise exception 'MLS device revocation timestamp cannot be rewritten';
+  end if;
+
+  return new;
+end;
+$function$;
+
+create trigger mls_devices_protect_binding
+before update on public.mls_devices
+for each row
+execute function private.mls_protect_device_binding();
+
+revoke all on function private.mls_protect_device_binding()
+  from public, anon, authenticated;
+
 comment on table public.mls_devices is
   'Server-managed MLS device registry. Contains public key material only; never device private keys.';
 
@@ -58,6 +99,33 @@ insert into public.mls_space_groups (space_id)
 select s.id
 from public.spaces s
 on conflict (space_id) do nothing;
+
+-- Ensure rooms created after this migration receive their server-owned MLS
+-- group mapping before the existing owner-membership trigger inserts a row.
+create or replace function private.mls_create_space_group_mapping()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  insert into public.mls_space_groups (space_id)
+  values (new.id)
+  on conflict (space_id) do nothing;
+  return new;
+end;
+$function$;
+
+-- PostgreSQL orders same-event triggers by name. The leading "a_" ensures
+-- this runs before the existing spaces_add_owner_membership trigger.
+create trigger a_spaces_mls_create_group_mapping
+after insert on public.spaces
+for each row
+execute function private.mls_create_space_group_mapping();
+
+revoke all on function private.mls_create_space_group_mapping()
+  from public, anon, authenticated;
+
 
 create table public.mls_membership_authorizations (
   id uuid primary key default gen_random_uuid(),
@@ -105,6 +173,48 @@ create index mls_authorizations_unconsumed_expiry_idx
   on public.mls_membership_authorizations (expires_at)
   where consumed_at is null;
 
+-- Authorization contents are immutable after issuance. The only allowed
+-- update is the one-way transition consumed_at: NULL -> timestamp.
+create or replace function private.mls_protect_authorization_immutability()
+returns trigger
+language plpgsql
+set search_path = ''
+as $function$
+begin
+  if new.id is distinct from old.id
+     or new.space_id is distinct from old.space_id
+     or new.group_id is distinct from old.group_id
+     or new.actor_user_id is distinct from old.actor_user_id
+     or new.actor_device_id is distinct from old.actor_device_id
+     or new.operation is distinct from old.operation
+     or new.target_user_id is distinct from old.target_user_id
+     or new.target_device_id is distinct from old.target_device_id
+     or new.target_credential_id is distinct from old.target_credential_id
+     or new.target_signature_public_key is distinct from old.target_signature_public_key
+     or new.roster_version is distinct from old.roster_version
+     or new.commit_digest is distinct from old.commit_digest
+     or new.created_at is distinct from old.created_at
+     or new.expires_at is distinct from old.expires_at then
+    raise exception 'MLS membership authorization is immutable';
+  end if;
+
+  if old.consumed_at is not null
+     or new.consumed_at is null then
+    raise exception 'MLS authorization consumption is a one-way transition';
+  end if;
+
+  return new;
+end;
+$function$;
+
+create trigger mls_authorizations_protect_immutability
+before update on public.mls_membership_authorizations
+for each row
+execute function private.mls_protect_authorization_immutability();
+
+revoke all on function private.mls_protect_authorization_immutability()
+  from public, anon, authenticated;
+
 comment on table public.mls_membership_authorizations is
   'Short-lived, exact-Commit, single-use MLS membership authorization ledger. Signed assertions are produced by the server, not trusted from this row alone.';
 
@@ -120,7 +230,7 @@ revoke all on public.mls_membership_authorizations from public, anon, authentica
 
 grant select, insert, update, delete on public.mls_devices to service_role;
 grant select, insert, update, delete on public.mls_space_groups to service_role;
-grant select, insert, update, delete on public.mls_membership_authorizations to service_role;
+grant select, insert, update on public.mls_membership_authorizations to service_role;
 
 -- Roster version updates are performed by triggers, not client-callable RPCs.
 create or replace function private.mls_bump_space_roster_version(p_space_id uuid)
