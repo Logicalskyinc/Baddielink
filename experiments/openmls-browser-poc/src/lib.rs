@@ -4,11 +4,11 @@ mod trusted_issuers;
 mod candidate_operations;
 mod utils;
 
-use js_sys::Uint8Array;
+use js_sys::{Array, Object, Reflect, Uint8Array};
 use openmls::{
     credentials::{BasicCredential, Credential, CredentialType, CredentialWithKey},
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut},
-    group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
+    group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedCommit, StagedWelcome},
     key_packages::KeyPackage as OpenMlsKeyPackage,
     prelude::{LeafNodeIndex, SignatureScheme},
     treesync::RatchetTreeIn,
@@ -174,6 +174,9 @@ fn welcome_own_leaf_matches_identity(
 #[wasm_bindgen]
 pub struct Group {
     mls_group: MlsGroup,
+    // Kept separate from the active group state until the caller explicitly
+    // completes the staged-commit review step.
+    pending_staged_commit: Option<StagedCommit>,
 }
 
 #[wasm_bindgen]
@@ -215,7 +218,7 @@ impl Group {
         let mls_group = MlsGroup::load(provider.storage(), &group_id)
             .map_err(|e| JsError::new(&format!("MLS group load failed: {e}")))?
             .ok_or_else(|| JsError::new("MLS group was not found in restored storage."))?;
-        Ok(Group { mls_group })
+        Ok(Group { mls_group, pending_staged_commit: None })
     }
 
     pub fn create_new(provider: &Provider, founder: &Identity, group_id: &str) -> Result<Group, JsError> {
@@ -231,7 +234,7 @@ impl Group {
             )
             .map_err(|e| JsError::new(&format!("MLS group creation failed: {e}")))?;
 
-        Ok(Group { mls_group })
+        Ok(Group { mls_group, pending_staged_commit: None })
     }
     pub fn join(
         provider: &Provider,
@@ -266,7 +269,7 @@ impl Group {
         }
 
         let mls_group = staged_welcome.into_group(provider)?;
-        Ok(Group { mls_group })
+        Ok(Group { mls_group, pending_staged_commit: None })
     }
 
     pub fn export_ratchet_tree(&self) -> RatchetTree {
@@ -339,6 +342,74 @@ impl Group {
             .map_err(|e| JsError::new(&format!("merge_pending_commit failed: {e}")))
     }
 
+    /// Return credential/signature-key bindings for Add and Update proposals
+    /// in the currently staged Commit. These are authenticated MLS objects,
+    /// but the returned bindings are not an application authorization decision.
+    pub fn pending_commit_add_update_bindings(&self) -> Result<JsValue, JsError> {
+        let changes = Array::new();
+        let Some(staged) = self.pending_staged_commit.as_ref() else {
+            return Ok(changes.into());
+        };
+
+        for queued in staged.add_proposals() {
+            let leaf = queued.add_proposal().key_package().leaf_node();
+            let entry = Object::new();
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("kind"),
+                &JsValue::from_str("add"),
+            ).map_err(|_| JsError::new("Could not encode staged Add proposal metadata."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("credentialId"),
+                &Uint8Array::from(leaf.credential().serialized_content()).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Add credential."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("signatureKey"),
+                &Uint8Array::from(leaf.signature_key().as_slice()).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Add signature key."))?;
+            changes.push(entry.as_ref());
+        }
+
+        for queued in staged.update_proposals() {
+            let leaf = queued.update_proposal().leaf_node();
+            let entry = Object::new();
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("kind"),
+                &JsValue::from_str("update"),
+            ).map_err(|_| JsError::new("Could not encode staged Update proposal metadata."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("credentialId"),
+                &Uint8Array::from(leaf.credential().serialized_content()).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Update credential."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("signatureKey"),
+                &Uint8Array::from(leaf.signature_key().as_slice()).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Update signature key."))?;
+            changes.push(entry.as_ref());
+        }
+
+        Ok(changes.into())
+    }
+
+    /// Merge the retained Commit only after the caller has completed its
+    /// admission review. The worker currently invokes this immediately after
+    /// collecting metadata because no authenticated registration/roster
+    /// service is wired yet; this method alone does not enforce authorization.
+    pub fn merge_staged_commit(&mut self, provider: &mut Provider) -> Result<bool, JsError> {
+        let Some(staged) = self.pending_staged_commit.take() else {
+            return Ok(false);
+        };
+        self.mls_group
+            .merge_staged_commit(provider.as_mut(), staged)
+            .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
+        Ok(true)
+    }
+
     pub fn create_message(
         &mut self,
         provider: &Provider,
@@ -394,8 +465,12 @@ impl Group {
                 Ok(vec![])
             }
             openmls::framing::ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                self.mls_group
-                    .merge_staged_commit(provider.as_mut(), *staged_commit)?;
+                if self.pending_staged_commit.is_some() {
+                    return Err(JsError::new(
+                        "A staged MLS Commit is already awaiting review.",
+                    ));
+                }
+                self.pending_staged_commit = Some(*staged_commit);
                 Ok(vec![])
             }
             openmls::framing::ProcessedMessageContent::OwnPendingCommit => {
@@ -512,7 +587,7 @@ impl Group {
         .into_group(provider.as_ref())
         .unwrap();
 
-        Group { mls_group }
+        Group { mls_group, pending_staged_commit: None }
     }
 }
 
