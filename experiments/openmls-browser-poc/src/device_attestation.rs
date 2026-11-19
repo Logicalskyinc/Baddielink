@@ -138,7 +138,7 @@ pub fn verify_device_attestation(
     if protected.alg != Some(coset::RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256)) {
         return Err(fail("Attestation must use protected ES256 algorithm."));
     }
-    if protected.key_id.is_empty() || !cose.unprotected.is_empty() {
+    if protected.key_id.is_empty() || cose.unprotected != coset::Header::default() || !protected.rest.is_empty() {
         return Err(fail("COSE key identifier must be protected and unprotected headers must be empty."));
     }
     let issuer_key = trusted_issuers.iter()
@@ -154,10 +154,11 @@ pub fn verify_device_attestation(
             .map_err(|_| fail("Attestation signature verification failed."))
     })?;
 
-    let payload = cose.payload.as_ref().expect("payload checked above");
+    let payload = cose.payload.as_ref()
+        .ok_or_else(|| fail("Detached COSE payloads are not accepted."))?;
     let decoded: Value = ciborium::de::from_reader(payload.as_slice())
         .map_err(|_| fail("Attestation payload is not valid CBOR."))?;
-    if canonical_cbor(&decoded)? != *payload {
+    if canonical_cbor(&decoded)?.as_slice() != payload.as_slice() {
         return Err(fail("Attestation payload is not deterministic CBOR."));
     }
 
