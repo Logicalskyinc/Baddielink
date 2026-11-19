@@ -39,6 +39,7 @@ openmls_basic_credential = "0.6.0"
 tls_codec = { version = "0.5", features = ["derive", "serde", "mls"] }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3.68"
+sha2 = "0.10"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # OpenMLS' RustCrypto dependency tree uses getrandom 0.2. Enable its
