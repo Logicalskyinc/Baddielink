@@ -196,6 +196,18 @@ begin
     raise exception 'competing authorization consumed the same roster version';
   end if;
 
+  -- A pending reservation must not be silently cleared by deleting its
+  -- authorization ledger row. The deferred FK also permits a whole room and
+  -- its dependent authorization rows to be deleted atomically.
+  set constraints mls_space_groups_pending_authorization_fk immediate;
+  begin
+    delete from public.mls_membership_authorizations where id = v_auth_id;
+    raise exception 'pending authorization row deletion unexpectedly succeeded';
+  exception when foreign_key_violation then
+    null;
+  end;
+  set constraints mls_space_groups_pending_authorization_fk deferred;
+
   -- Exact retry is idempotent; wrong digest is not.
   v_result := public.mls_consume_membership_authorization(
     v_auth_id,
@@ -403,14 +415,18 @@ end $$;
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
 begin
-  if has_table_privilege('anon', 'public.mls_devices', 'select')
-     or has_table_privilege('authenticated', 'public.mls_devices', 'select')
-     or has_table_privilege('anon', 'public.mls_space_device_roster', 'select')
-     or has_table_privilege('authenticated', 'public.mls_space_device_roster', 'select')
-     or has_table_privilege('service_role', 'public.mls_space_device_roster', 'insert')
-     or has_table_privilege('anon', 'public.mls_membership_authorizations', 'insert')
-     or has_table_privilege('authenticated', 'public.mls_membership_authorizations', 'insert') then
-    raise exception 'browser role has unexpected MLS table privileges';
+  if has_table_privilege('anon', 'public.mls_devices', 'select,insert,update,delete')
+     or has_table_privilege('authenticated', 'public.mls_devices', 'select,insert,update,delete')
+     or has_table_privilege('anon', 'public.mls_space_groups', 'select,insert,update,delete')
+     or has_table_privilege('authenticated', 'public.mls_space_groups', 'select,insert,update,delete')
+     or has_table_privilege('anon', 'public.mls_space_device_roster', 'select,insert,update,delete')
+     or has_table_privilege('authenticated', 'public.mls_space_device_roster', 'select,insert,update,delete')
+     or has_table_privilege('anon', 'public.mls_membership_authorizations', 'select,insert,update,delete')
+     or has_table_privilege('authenticated', 'public.mls_membership_authorizations', 'select,insert,update,delete')
+     or has_table_privilege('service_role', 'public.mls_space_groups', 'insert,update,delete')
+     or has_table_privilege('service_role', 'public.mls_space_device_roster', 'insert,update,delete')
+     or has_table_privilege('service_role', 'public.mls_membership_authorizations', 'update,delete') then
+    raise exception 'MLS table grants exceed the server-only access contract';
   end if;
   if has_function_privilege(
     'authenticated',
