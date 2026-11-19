@@ -145,6 +145,13 @@ impl Identity {
         })
     }
 
+    /// Explicit browser-harness capability marker. The method is not
+    /// exported by default/production WASM builds.
+    #[cfg(feature = "browser-test-admission")]
+    pub fn browser_test_admission_enabled(&self) -> bool {
+        true
+    }
+
     pub fn key_package(&self, provider: &Provider) -> Result<KeyPackage, JsError> {
         let bundle = OpenMlsKeyPackage::builder()
             .build(
