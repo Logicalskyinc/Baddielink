@@ -30,9 +30,8 @@ create table public.mls_devices (
   constraint mls_devices_id_user_unique unique (id, user_id)
 );
 
-create unique index mls_devices_one_active_device_id
-  on public.mls_devices (user_id, device_id)
-  where status = 'active';
+create unique index mls_devices_user_device_unique
+  on public.mls_devices (user_id, device_id);
 
 create index mls_devices_user_status_idx
   on public.mls_devices (user_id, status);
