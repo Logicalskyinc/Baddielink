@@ -411,11 +411,14 @@ impl Group {
         Ok(changes.into())
     }
 
-    /// Merge the retained Commit only after the caller has completed its
-    /// admission review. The worker currently invokes this immediately after
-    /// collecting metadata because no authenticated registration/roster
-    /// service is wired yet; this method alone does not enforce authorization.
-    pub fn merge_staged_commit(&mut self, provider: &mut Provider) -> Result<bool, JsError> {
+    /// Test-harness-only escape hatch to exercise MLS membership and restart
+    /// flows. This is deliberately absent from default/production WASM builds:
+    /// it does not perform BaddieLink device authorization.
+    #[cfg(feature = "browser-test-admission")]
+    pub fn merge_staged_commit_for_browser_test(
+        &mut self,
+        provider: &mut Provider,
+    ) -> Result<bool, JsError> {
         let Some(staged) = self.pending_staged_commit.take() else {
             return Ok(false);
         };
