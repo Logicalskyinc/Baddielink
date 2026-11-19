@@ -110,7 +110,7 @@
 
       const welcome = aliceGroup.propose_and_commit_add(aliceProvider, alice, bob.key_package(bobProvider));
       aliceGroup.merge_pending_commit(aliceProvider);
-      Group.join(bobProvider, welcome.welcome, aliceGroup.export_ratchet_tree());
+      Group.join(bobProvider, bob, welcome.welcome, aliceGroup.export_ratchet_tree());
 
       const ciphertext = aliceGroup.create_message(aliceProvider, alice, encoder.encode(EXPECTED));
       const snapshot = bobProvider.export_snapshot_bytes();
