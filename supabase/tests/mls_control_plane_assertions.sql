@@ -95,6 +95,23 @@ begin
      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'))
   returning id into v_target_device;
 
+  -- Room roster rows must bind to the exact credential and signature key
+  -- registered for the referenced device.
+  begin
+    insert into public.mls_space_device_roster (
+      space_id, user_id, device_id, credential_id, signature_public_key
+    ) values (
+      '20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001',
+      v_actor_device,
+      decode(repeat('ff',32),'hex'),
+      decode(repeat('ee',32),'hex')
+    );
+    raise exception 'room roster accepted a credential/key mismatch';
+  exception when foreign_key_violation then
+    null;
+  end;
+
   -- Return room to active before the server-authorized first-device bootstrap.
   update public.spaces set status = 'active'
    where id = '20000000-0000-4000-8000-000000000001';
@@ -160,6 +177,47 @@ begin
   from public.mls_space_groups g
   where g.space_id = '20000000-0000-4000-8000-000000000001'
   returning id into v_auth_id;
+
+  -- Authorization targets must match the exact registered credential/key.
+  begin
+    insert into public.mls_membership_authorizations (
+      space_id, group_id, actor_user_id, actor_device_id, operation,
+      target_user_id, target_device_id, target_credential_id,
+      target_signature_public_key, roster_version, commit_digest, expires_at
+    )
+    select
+      g.space_id, g.group_id,
+      '10000000-0000-4000-8000-000000000001', v_actor_device, 'add',
+      '10000000-0000-4000-8000-000000000003', v_target_device,
+      decode(repeat('ff',32),'hex'), decode(repeat('ee',32),'hex'),
+      g.roster_version, v_digest, clock_timestamp() + interval '90 seconds'
+    from public.mls_space_groups g
+    where g.space_id = '20000000-0000-4000-8000-000000000001';
+    raise exception 'authorization accepted mismatched target credential/key';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  -- Device-key replacement is not supported by this protocol. A rekey flow
+  -- must register a new device and use a separately designed MLS transition.
+  begin
+    insert into public.mls_membership_authorizations (
+      space_id, group_id, actor_user_id, actor_device_id, operation,
+      target_user_id, target_device_id, target_credential_id,
+      target_signature_public_key, roster_version, commit_digest, expires_at
+    )
+    select
+      g.space_id, g.group_id,
+      '10000000-0000-4000-8000-000000000001', v_actor_device, 'update',
+      '10000000-0000-4000-8000-000000000003', v_target_device,
+      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'),
+      g.roster_version, v_digest, clock_timestamp() + interval '90 seconds'
+    from public.mls_space_groups g
+    where g.space_id = '20000000-0000-4000-8000-000000000001';
+    raise exception 'unsupported MLS update authorization was accepted';
+  exception when check_violation then
+    null;
+  end;
 
   -- A second authorization for the same roster version must not be able to
   -- reserve the room while the first Commit is pending.
