@@ -352,10 +352,10 @@ mod tests {
             1_800_000_100,
         );
 
-        #[cfg(feature = "attestation-test-issuer")]
+        #[cfg(all(feature = "attestation-test-issuer", not(target_arch = "wasm32")))]
         assert!(result.is_ok(), "explicit test build should pin its test issuer");
 
-        #[cfg(not(feature = "attestation-test-issuer"))]
+        #[cfg(not(all(feature = "attestation-test-issuer", not(target_arch = "wasm32"))))]
         assert_eq!(
             result.unwrap_err(),
             "Unknown attestation issuer key identifier.",
