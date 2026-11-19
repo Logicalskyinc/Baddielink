@@ -12,7 +12,7 @@ Do not create a second room or membership system. Legacy `public.matches` and `p
 
 ## Verified E2EE boundary
 
-The experimental PR is open and draft. Its current authorization contract specifies separate device registration and room-scoped membership authorization, exact Commit digest binding, a credential-bound per-room device roster, serialized reservation/finalization, and fail-closed worker sequencing.
+The experimental PR is open and draft. Its current authorization contract specifies separate device registration and room-scoped membership authorization, exact Commit digest binding, an exact credential/key-bound per-room device roster, serialized reservation/finalization, and fail-closed worker sequencing.
 
 The live Supabase project currently reports no deployed Edge Functions. No E2EE device registry, MLS group mapping, roster version, or authorization-consumption tables were found in the inspected schema.
 
@@ -21,7 +21,7 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 1. **Device registry**: a server-owned record bound to `auth.users.id`, with device reference, credential ID, public signature key, lifecycle status, timestamps, and revocation. Never store device private keys or accept issuer trust keys from a browser.
 2. **MLS room mapping**: map each `spaces.id` to one server-created opaque MLS group identifier. The browser must not invent or rebind this mapping.
 3. **Roster version and device projection**: monotonic version for each mapped room, incremented when an authorized device-level MLS roster change is finalized and when room status changes. Account membership/role is checked directly at consume and finalize time; unrelated account joins/leaves must not invalidate a different device-level Commit. A separate server-only per-room device projection binds registered device, account, SHA-256 hash of the serialized MLS BasicCredential identity, and exact signature public key. It deliberately stores no MLS leaf index. Existing rooms cannot be backfilled from account membership alone; their device projection remains empty until an authorized bootstrap/reconciliation process proves device-to-leaf bindings.
-4. **Membership authorization ledger**: server-only records bind room/group, authenticated actor/device, one operation, resolved target device/credential/key, current roster version, exact Commit digest, expiry, unique authorization ID, and consumption/application state. Consume reserves the room under a row lock; finalization after local durable persistence applies the device projection, advances the roster version, and releases the reservation. A pending reservation blocks competing authorizations. Exact retries are idempotent only for the same authorization and digest.
+4. **Membership authorization ledger**: server-only records bind room/group, authenticated actor/device, one supported operation (`add` or `remove`), resolved target device/credential/key, current roster version, exact Commit digest, expiry, unique authorization ID, and consumption/application state. Consume reserves the room under a row lock; finalization after local durable persistence applies the device projection, advances the roster version, and releases the reservation. A pending reservation blocks competing authorizations. Exact retries are idempotent only for the same authorization and digest.
 5. **Authenticated server endpoints**: verify the Supabase access token; derive actor from verified identity; check current membership, role, device status, room status, target, and roster version server-side. Never trust actor IDs, role, leaf index, target identity, or roster version supplied by the browser.
 6. **Signing and trust**: define a versioned room-authorization assertion distinct from the existing generic device-attestation v1. Provision issuer private key only in server secrets, publish/rotate its public trust anchor through a controlled release, and keep production trust empty until this is ready.
 7. **Worker integration**: inspect and stage one membership proposal, request exact room authorization, verify internally, consume/reserve once, merge, persist journal, finalize the server device roster, then publish. Any failure before merge leaves committed group state unchanged.
@@ -38,12 +38,13 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Current status
 
-- [x] Read-only Supabase migration inventory: 19 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
+- [x] Read-only Supabase migration inventory: 22 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
 - [x] Define server-maintained credential-bound device roster without persisting unstable MLS leaf indexes.
 - [x] Define two-phase authorization reservation/finalization to prevent concurrent Commits from consuming one roster version.
+- [x] Static review fixed finalized-consume idempotency, enforced exact registered device/credential/key bindings, and disabled `update` until a rekey protocol is designed.
 - [x] Require exactly one membership proposal per Commit until batch authorization is designed.
 - [x] Worker staged proposal inspection now emits SHA-256 credential hashes for Add/Update/Remove and resolves Remove to the current MLS member's credential/key binding.
 - [x] Worker rejects compound membership Commits while the authorization record remains single-target.
