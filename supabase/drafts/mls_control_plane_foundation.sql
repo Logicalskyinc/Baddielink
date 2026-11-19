@@ -125,7 +125,7 @@ comment on table public.mls_space_groups is
 -- state by the worker for each staged Commit.
 create table public.mls_space_device_roster (
   space_id uuid not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete restrict,
   device_id uuid not null,
   credential_id bytea not null check (octet_length(credential_id) = 32),
   signature_public_key bytea not null check (octet_length(signature_public_key) = 32),
