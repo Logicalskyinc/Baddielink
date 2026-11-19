@@ -392,6 +392,7 @@ declare
   v_commit_digest bytea;
   v_expires_at timestamptz;
   v_consumed_at timestamptz;
+  v_applied_at timestamptz;
   v_current_roster_version bigint;
   v_pending_authorization_id uuid;
   v_space_active boolean;
@@ -412,12 +413,12 @@ begin
          a.actor_user_id, a.actor_device_id,
          a.target_user_id, a.target_device_id,
          a.target_credential_id, a.target_signature_public_key,
-         a.operation, a.commit_digest, a.expires_at, a.consumed_at
+         a.operation, a.commit_digest, a.expires_at, a.consumed_at, a.applied_at
     into v_space_id, v_group_id, v_roster_version,
          v_actor_user_id, v_actor_device_id,
          v_target_user_id, v_target_device_id,
          v_target_credential_id, v_target_signature_public_key,
-         v_operation, v_commit_digest, v_expires_at, v_consumed_at
+         v_operation, v_commit_digest, v_expires_at, v_consumed_at, v_applied_at
     from public.mls_membership_authorizations a
    where a.id = p_authorization_id
    for update;
@@ -427,11 +428,6 @@ begin
      or v_actor_device_id <> p_actor_device_id
      or v_commit_digest <> p_commit_digest then
     return false;
-  end if;
-
-  -- Exact same request after a lost response is safe to acknowledge.
-  if v_consumed_at is not null then
-    return true;
   end if;
 
   select g.roster_version, g.pending_authorization_id,
@@ -449,6 +445,13 @@ begin
      or (v_pending_authorization_id is not null
          and v_pending_authorization_id <> p_authorization_id) then
     return false;
+  end if;
+
+  -- A consumed retry is valid only while its reservation still owns this
+  -- room, or after the exact authorization has already been finalized.
+  if v_consumed_at is not null then
+    return v_pending_authorization_id = p_authorization_id
+      or v_applied_at is not null;
   end if;
 
   select exists (
@@ -589,6 +592,8 @@ declare
   v_applied_at timestamptz;
   v_pending_authorization_id uuid;
   v_current_roster_version bigint;
+  v_actor_device_active boolean;
+  v_target_device_active boolean;
 begin
   if p_authorization_id is null
      or p_actor_user_id is null
@@ -635,6 +640,33 @@ begin
      or v_current_roster_version <> v_roster_version
      or v_pending_authorization_id <> p_authorization_id then
     return false;
+  end if;
+
+  select (d.status = 'active' and d.revoked_at is null)
+    into v_actor_device_active
+    from public.mls_devices d
+   where d.id = v_actor_device_id
+     and d.user_id = v_actor_user_id;
+
+  if not found or not coalesce(v_actor_device_active, false) then
+    return false;
+  end if;
+
+  if v_operation in ('add', 'update') then
+    select (
+      d.status = 'active'
+      and d.revoked_at is null
+      and d.credential_id = v_target_credential_id
+      and d.signature_public_key = v_target_signature_public_key
+    )
+      into v_target_device_active
+      from public.mls_devices d
+     where d.id = v_target_device_id
+       and d.user_id = v_target_user_id;
+
+    if not found or not coalesce(v_target_device_active, false) then
+      return false;
+    end if;
   end if;
 
   if v_operation = 'add' then
