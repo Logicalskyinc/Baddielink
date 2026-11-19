@@ -4,13 +4,13 @@ on:
   push:
     branches: [feat/e2ee-browser-validation]
     paths:
-      - "supabase/migrations/20261119150000_mls_control_plane_foundation.sql"
+      - "supabase/drafts/mls_control_plane_foundation.sql"
       - "supabase/tests/mls_control_plane_*.sql"
       - ".github/workflows/mls-control-plane-validation.yml"
   pull_request:
     branches: [main]
     paths:
-      - "supabase/migrations/20261119150000_mls_control_plane_foundation.sql"
+      - "supabase/drafts/mls_control_plane_foundation.sql"
       - "supabase/tests/mls_control_plane_*.sql"
       - ".github/workflows/mls-control-plane-validation.yml"
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
         run: psql --set ON_ERROR_STOP=1 --file supabase/tests/mls_control_plane_setup.sql
 
       - name: Apply MLS control-plane migration to disposable PostgreSQL
-        run: psql --set ON_ERROR_STOP=1 --file supabase/migrations/20261119150000_mls_control_plane_foundation.sql
+        run: psql --set ON_ERROR_STOP=1 --file supabase/drafts/mls_control_plane_foundation.sql
 
       - name: Verify roster version, lifecycle, consumption, and grants
         run: psql --set ON_ERROR_STOP=1 --file supabase/tests/mls_control_plane_assertions.sql
