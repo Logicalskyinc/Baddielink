@@ -1,6 +1,6 @@
 # BaddieLink E2EE backend integration assessment
 
-Status: repository design and read-only database inspection only. This document does not authorize applying SQL or deploying an Edge Function.
+Status: repository design, migration source drafted, and read-only database inspection. The migration is not locally validated and this document does not authorize applying SQL or deploying an Edge Functions.
 
 ## Verified database model
 
@@ -42,7 +42,7 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
-- [ ] Create migration using the Supabase CLI migration generator, then implement and test it against a disposable/local database.
+- [x] Draft repository-only migration source: `supabase/migrations/20261119150000_mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).\n- [ ] Validate the migration against a disposable/local Supabase database. The current execution environment has no Supabase CLI, PostgreSQL client/server, or Docker runtime, so SQL execution and concurrency testing have not been performed.
 - [ ] Implement and test authenticated Edge Functions and atomic authorization consumption.
 - [ ] Implement worker integration and rejection matrix.
 - [ ] Configure issuer key, rotation, and production trust anchor after security review.
@@ -50,4 +50,4 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Explicit non-actions
 
-No live database schema was changed. No migration was applied. No Edge Function was deployed. No Render deployment, production feature activation, or billing change was made.
+No live database schema was changed. The new migration exists only on the experimental GitHub branch and is not recorded as applied. No Edge Function was deployed. No Render deployment, production feature activation, or billing change was made.
