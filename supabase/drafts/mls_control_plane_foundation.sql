@@ -509,12 +509,9 @@ begin
        and r.signature_public_key = v_target_signature_public_key
   ) into v_target_is_in_roster;
 
-  if v_operation = 'add' then
-    if coalesce(v_target_is_in_roster, false) then
-      return false;
-    end if;
-
-    -- Device admission cannot bypass the account-level room membership gate.
+  if v_operation in ('add', 'update') then
+    -- Device admission/update cannot bypass the ordinary BaddieLink
+    -- account-level room-membership gate.
     if not exists (
       select 1
         from public.space_memberships sm
@@ -522,6 +519,12 @@ begin
          and sm.user_id = v_target_user_id
          and sm.status = 'active'
     ) then
+      return false;
+    end if;
+  end if;
+
+  if v_operation = 'add' then
+    if coalesce(v_target_is_in_roster, false) then
       return false;
     end if;
 
