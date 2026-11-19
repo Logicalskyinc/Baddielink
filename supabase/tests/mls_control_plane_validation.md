@@ -45,6 +45,7 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Verify exact same actor/device/digest retry is idempotent.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
+- Race `consume` against room suspend/archive/restore in two PostgreSQL sessions in both lock-acquisition orders; prove either the status transition commits first and consume rejects the stale version, or consume reserves first and the status transition rejects without stranding the reservation.
 - Verify deleting a pending authorization cannot clear its room reservation; deleting an entire room and its dependent records remains atomic.
 - Verify target device belongs to target account through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
