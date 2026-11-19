@@ -127,6 +127,7 @@ pub fn verify_device_attestation(
     expected_audience: &str,
     expected_credential_id: &[u8],
     expected_signature_key: &[u8],
+    expected_roster_version: u64,
     now_unix_secs: u64,
 ) -> Result<DeviceAttestationClaims, String> {
     let cose = CoseSign1::from_slice(envelope)
@@ -192,6 +193,9 @@ pub fn verify_device_attestation(
     }
     if status != "active" {
         return Err(fail("Device registration is not active."));
+    }
+    if roster_version != expected_roster_version {
+        return Err(fail("Attestation roster version is stale or does not match the trusted current roster."));
     }
     if issued_at > now_unix_secs.saturating_add(CLOCK_SKEW_SECS)
         || expires_at <= now_unix_secs.saturating_sub(CLOCK_SKEW_SECS)
@@ -270,7 +274,7 @@ mod tests {
         let device_key = vec![5; 32];
         let (envelope, issuers, _) = fixture("active", "baddielink-test", &credential, &device_key);
         let claims = verify_device_attestation(
-            &envelope, &issuers, "baddielink-test", &credential, &device_key, 1_800_000_100,
+            &envelope, &issuers, "baddielink-test", &credential, &device_key, 7, 1_800_000_100,
         ).expect("valid attestation");
         assert_eq!(claims.credential_id, credential);
         assert_eq!(claims.signature_key, device_key);
@@ -295,10 +299,20 @@ mod tests {
         let device_key = vec![5; 32];
         let (envelope, issuers, _) = fixture("active", "baddielink-test", &credential, &device_key);
         assert!(verify_device_attestation(
-            &envelope, &issuers, "production", &credential, &device_key, 1_800_000_100,
+            &envelope, &issuers, "production", &credential, &device_key, 7, 1_800_000_100,
         ).is_err());
         assert!(verify_device_attestation(
-            &envelope, &issuers, "baddielink-test", &[8; 32], &device_key, 1_800_000_100,
+            &envelope, &issuers, "baddielink-test", &[8; 32], &device_key, 7, 1_800_000_100,
+        ).is_err());
+    }
+
+    #[test]
+    fn rejects_stale_roster_version() {
+        let credential = vec![4; 32];
+        let device_key = vec![5; 32];
+        let (envelope, issuers, _) = fixture("active", "baddielink-test", &credential, &device_key);
+        assert!(verify_device_attestation(
+            &envelope, &issuers, "baddielink-test", &credential, &device_key, 8, 1_800_000_100,
         ).is_err());
     }
 
@@ -308,14 +322,14 @@ mod tests {
         let device_key = vec![5; 32];
         let (revoked, issuers, _) = fixture("revoked", "baddielink-test", &credential, &device_key);
         assert!(verify_device_attestation(
-            &revoked, &issuers, "baddielink-test", &credential, &device_key, 1_800_000_100,
+            &revoked, &issuers, "baddielink-test", &credential, &device_key, 7, 1_800_000_100,
         ).is_err());
         let (expired, issuers, _) = fixture("active", "baddielink-test", &credential, &device_key);
         assert!(verify_device_attestation(
-            &expired, &issuers, "baddielink-test", &credential, &device_key, 1_800_010_000,
+            &expired, &issuers, "baddielink-test", &credential, &device_key, 7, 1_800_010_000,
         ).is_err());
         assert!(verify_device_attestation(
-            &expired, &issuers, "baddielink-test", &credential, &[6; 32], 1_800_000_100,
+            &expired, &issuers, "baddielink-test", &credential, &[6; 32], 7, 1_800_000_100,
         ).is_err());
     }
 }
