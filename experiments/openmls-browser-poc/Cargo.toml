@@ -14,6 +14,9 @@ default = ["console_error_panic_hook"]
 # Explicitly opt-in issuer key for isolated browser/native test artifacts only.
 # Production/default builds must never enable this feature.
 attestation-test-issuer = []
+# Exposes a membership-merge escape hatch only to the isolated browser harness.
+# This is not authorization and must never be enabled in production artifacts.
+browser-test-admission = ["attestation-test-issuer"]
 extensions-draft = [
     "openmls/extensions-draft",
     "openmls_rust_crypto/extensions-draft",
