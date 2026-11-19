@@ -173,7 +173,7 @@ The current branch has implemented the following pieces:
 - The previous EdDSA/integer-key assertion proposal has been marked superseded. The selected prototype format is ES256 with the 12 named claims documented above.
 - Strict version-1 payload claim-set validation: exactly the 12 required claims, text claim names only, and no duplicate or unknown claims.
 - OpenMLS KeyPackage deserialization with trailing-byte rejection.
-- Extraction of the BasicCredential identity and signature public key from the same parsed KeyPackage object.
+- Extraction of a stable SHA-256 credential binding and signature public key from the same parsed KeyPackage object.
 - OpenMLS cryptographic validation of the KeyPackage before the extracted binding is returned.
 - Native tests for KeyPackage tampering/trailing bytes and attestation signature, claim, audience, credential, key, expiry, status, and roster-version failures.
 
