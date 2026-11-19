@@ -542,6 +542,12 @@ begin
     return false;
   end if;
 
+  -- A completed authorization remains idempotently acknowledged even though
+  -- finalization has advanced the room's roster version.
+  if v_consumed_at is not null and v_applied_at is not null then
+    return true;
+  end if;
+
   select g.roster_version, g.pending_authorization_id,
          (s.status = 'active'), s.owner_id
     into v_current_roster_version, v_pending_authorization_id, v_space_active, v_space_owner_id
@@ -562,8 +568,7 @@ begin
   -- A consumed retry is valid only while its reservation still owns this
   -- room, or after the exact authorization has already been finalized.
   if v_consumed_at is not null then
-    return v_pending_authorization_id = p_authorization_id
-      or v_applied_at is not null;
+    return v_pending_authorization_id = p_authorization_id;
   end if;
 
   select exists (
