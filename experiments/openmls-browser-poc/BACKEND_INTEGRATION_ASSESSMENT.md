@@ -1,6 +1,6 @@
 # BaddieLink E2EE backend integration assessment
 
-Status: repository design, migration source drafted, and read-only database inspection. The migration is not locally validated and this document does not authorize applying SQL or deploying an Edge Functions.
+Status: repository design, migration source drafted, and read-only database inspection. The migration is not locally validated and this document does not authorize applying SQL or deploying Edge Functions.
 
 ## Verified database model
 
