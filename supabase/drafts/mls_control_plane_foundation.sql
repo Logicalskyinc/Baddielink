@@ -59,7 +59,7 @@ begin
   end if;
 
   if old.status = 'active' and new.status = 'revoked' then
-    new.revoked_at := coalesce(new.revoked_at, clock_timestamp());
+    new.revoked_at := clock_timestamp();
   elsif new.status = 'active' then
     new.revoked_at := null;
   elsif new.revoked_at is distinct from old.revoked_at then
