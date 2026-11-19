@@ -397,6 +397,7 @@ declare
   v_pending_authorization_id uuid;
   v_space_active boolean;
   v_actor_can_manage boolean;
+  v_actor_is_in_roster boolean;
   v_target_is_in_roster boolean;
   v_device_active boolean;
   v_target_device_active boolean;
@@ -464,6 +465,18 @@ begin
   ) into v_actor_can_manage;
 
   if not coalesce(v_actor_can_manage, false) then
+    return false;
+  end if;
+
+  select exists (
+    select 1
+      from public.mls_space_device_roster r
+     where r.space_id = v_space_id
+       and r.user_id = v_actor_user_id
+       and r.device_id = v_actor_device_id
+  ) into v_actor_is_in_roster;
+
+  if not coalesce(v_actor_is_in_roster, false) then
     return false;
   end if;
 
