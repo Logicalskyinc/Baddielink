@@ -240,6 +240,18 @@ try {
         throw new Error("Second recipient could not process the post-restart epoch message.");
       }
 
+      // Unknown identities must fail closed and must not publish a candidate
+      // state or prevent a subsequent valid membership change.
+      let unknownMemberRemovalRejected = false;
+      try {
+        await aliceWorker.request("remove-member", { memberIdentity: "not-a-member" });
+      } catch {
+        unknownMemberRemovalRejected = true;
+      }
+      if (!unknownMemberRemovalRejected) {
+        throw new Error("Founder accepted a removal request for an unknown identity.");
+      }
+
       const removal = await aliceWorker.request("remove-member", {
         memberIdentity: bob.identityName
       });
@@ -346,6 +358,7 @@ try {
         postRestartMessageDecrypted: true,
         plaintextNotPresentInCiphertext: true,
         memberRemovalCommitted: true,
+        unknownMemberRemovalRejected: true,
         remainingMemberProcessedRemovalCommit: true,
         replayedRemovalCommitRejected: true,
         founderRestartRestoredPostRemovalEpoch: true,
