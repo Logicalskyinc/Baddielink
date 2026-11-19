@@ -1,6 +1,6 @@
 # MLS control-plane migration validation checklist
 
-This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The migration is repository-only and has not been applied to any Supabase project.
+This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It is a repository-only draft and has not been applied to any Supabase project.
 
 ## Required local Supabase tests before approval
 
@@ -12,9 +12,9 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Confirm rollback leaves the original room and membership schema unchanged.
 
 ### Access control
-- As `anon` and `authenticated`, verify SELECT/INSERT/UPDATE/DELETE are denied on all three MLS control-plane tables.
+- As `anon` and `authenticated`, verify SELECT/INSERT/UPDATE/DELETE are denied on all four MLS control-plane tables.
 - Verify `authenticated` cannot execute the consume function.
-- Verify `service_role` can execute the consume function.
+- Verify `service_role` can execute the bootstrap, consume, and finalize functions.
 - Verify trigger functions cannot be called as RPCs by browser roles.
 - Verify no new RLS policy accidentally grants client access.
 
@@ -45,6 +45,7 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Verify exact same actor/device/digest retry is idempotent.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
+- Race consume/finalize against device revocation and verify row locks serialize the operations without allowing a mid-commit key revocation.
 - Verify target device belongs to target account through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
 
