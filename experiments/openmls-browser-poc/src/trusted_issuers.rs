@@ -11,7 +11,7 @@ use crate::device_attestation::TrustedIssuerKey;
 /// Return the issuer keys pinned into this build. This is deliberately not a
 /// WASM export and accepts no caller-supplied configuration.
 pub(crate) fn configured_issuers() -> Vec<TrustedIssuerKey> {
-    #[cfg(feature = "attestation-test-issuer")]
+    #[cfg(all(feature = "attestation-test-issuer", not(target_arch = "wasm32")))]
     {
         return vec![TrustedIssuerKey {
             key_id: b"test-issuer-key-1".to_vec(),
@@ -32,7 +32,7 @@ pub(crate) fn configured_issuers() -> Vec<TrustedIssuerKey> {
         }];
     }
 
-    #[cfg(not(feature = "attestation-test-issuer"))]
+    #[cfg(not(all(feature = "attestation-test-issuer", not(target_arch = "wasm32"))))]
     {
         Vec::new()
     }
