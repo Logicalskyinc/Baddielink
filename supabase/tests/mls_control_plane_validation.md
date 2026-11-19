@@ -31,6 +31,10 @@ This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It
 ### Device registry
 - Reject malformed device IDs, credential IDs, and public keys.
 - Reject duplicate credential IDs.
+- Reject reuse of a signing public key across different device registrations.
+- Reject a room-roster row whose credential ID or signing public key differs from its registered device.
+- Reject an authorization target whose credential ID or signing public key differs from its registered device.
+- Reject unsupported `update` authorizations until a separate rekey protocol is implemented.
 - Reject duplicate active device IDs for one account.
 - Permit a new active registration after the prior device registration is revoked, without reactivating the old credential.
 - Verify revoked devices cannot consume authorizations.
@@ -45,6 +49,7 @@ This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It
 - Verify exact same actor/device/digest retry is idempotent.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
+- Race consume/finalize against device revocation and verify row locks serialize the operations without allowing a mid-commit key revocation.
 - Race consume/finalize against device revocation and verify row locks serialize the operations without allowing a mid-commit key revocation.
 - Verify target device belongs to target account through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
