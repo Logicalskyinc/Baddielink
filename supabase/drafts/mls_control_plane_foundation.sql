@@ -11,7 +11,7 @@ begin;
 
 create table public.mls_devices (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete restrict,
   device_id bytea not null
     check (octet_length(device_id) between 16 and 64),
   credential_id bytea not null unique
@@ -81,6 +81,11 @@ revoke all on function private.mls_protect_device_binding()
 comment on table public.mls_devices is
   'Server-managed MLS device registry. Contains public key material only; never device private keys.';
 
+-- Account deletion is intentionally restricted while MLS device/roster/audit
+-- records exist. A separate account-erasure workflow must revoke devices,
+-- remove them from every MLS room, and retain/purge audit records by policy
+-- before deleting auth.users. Silent cascades could orphan live MLS leaves.
+
 create table public.mls_space_groups (
   space_id uuid primary key references public.spaces(id) on delete cascade,
   group_id uuid not null default gen_random_uuid() unique,
@@ -114,7 +119,7 @@ create table public.mls_space_device_roster (
   constraint mls_space_device_roster_device_fk
     foreign key (device_id, user_id)
     references public.mls_devices(id, user_id)
-    on delete cascade
+    on delete restrict
 );
 
 create index mls_space_device_roster_user_idx
@@ -187,11 +192,11 @@ create table public.mls_membership_authorizations (
   constraint mls_authorization_actor_device_fk
     foreign key (actor_device_id, actor_user_id)
     references public.mls_devices (id, user_id)
-    on delete cascade,
+    on delete restrict,
   constraint mls_authorization_target_device_fk
     foreign key (target_device_id, target_user_id)
     references public.mls_devices (id, user_id)
-    on delete cascade
+    on delete restrict
 );
 
 create index mls_authorizations_space_expiry_idx
