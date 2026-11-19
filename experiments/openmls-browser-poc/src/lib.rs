@@ -904,7 +904,12 @@ mod tests {
 
         let (_validated, binding) = validate_key_package_bytes(&bytes)
             .expect("generated KeyPackage should validate");
-        assert_eq!(binding.credential_id, b"opaque-device-credential-001");
+        assert_eq!(
+            binding.credential_id,
+            credential_id_hash(&bob.credential_with_key.credential),
+            "registration binding must use the stable credential hash"
+        );
+        assert_eq!(binding.credential_id.len(), 32);
         assert_eq!(binding.signature_key, bob.keypair.public());
 
         let mut tampered = bytes;
