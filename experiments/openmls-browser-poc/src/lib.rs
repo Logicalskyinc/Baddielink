@@ -1,6 +1,7 @@
 mod opfs_bridge;
 mod device_attestation;
 mod trusted_issuers;
+mod room_authorization;
 mod candidate_operations;
 mod utils;
 
