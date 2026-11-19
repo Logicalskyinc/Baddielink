@@ -509,6 +509,17 @@ begin
       return false;
     end if;
 
+    -- Device admission cannot bypass the account-level room membership gate.
+    if not exists (
+      select 1
+        from public.space_memberships sm
+       where sm.space_id = v_space_id
+         and sm.user_id = v_target_user_id
+         and sm.status = 'active'
+    ) then
+      return false;
+    end if;
+
     select (
       d.status = 'active'
       and d.revoked_at is null
