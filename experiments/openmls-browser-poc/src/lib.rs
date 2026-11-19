@@ -398,7 +398,7 @@ impl Group {
             Reflect::set(
                 entry.as_ref(),
                 &JsValue::from_str("credentialId"),
-                &Uint8Array::from(leaf.credential().serialized_content()).into(),
+                &Uint8Array::from(credential_id_hash(leaf.credential())).into(),
             ).map_err(|_| JsError::new("Could not encode staged Update credential."))?;
             Reflect::set(
                 entry.as_ref(),
@@ -436,7 +436,7 @@ impl Group {
             Reflect::set(
                 entry.as_ref(),
                 &JsValue::from_str("signatureKey"),
-                &Uint8Array::from(member.signature_key).into(),
+                &Uint8Array::from(member.signature_key.as_slice().to_vec()).into(),
             ).map_err(|_| JsError::new("Could not encode staged Remove signature key."))?;
             changes.push(entry.as_ref());
         }
