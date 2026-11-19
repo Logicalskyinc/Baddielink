@@ -10,6 +10,9 @@ use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 
 const EXTERNAL_AAD: &[u8] = b"BaddieLink-MLS-Device-Attestation-v1";
 const MAX_ATTESTATION_LIFETIME_SECS: u64 = 7 * 24 * 60 * 60;
+// Membership admission requires a recently issued assertion so a previously
+// active device cannot rely on a week-old status statement after revocation.
+const MAX_ATTESTATION_AGE_SECS: u64 = 5 * 60;
 const CLOCK_SKEW_SECS: u64 = 60;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -234,6 +237,7 @@ pub fn verify_device_attestation(
     if issued_at > now_unix_secs.saturating_add(CLOCK_SKEW_SECS)
         || expires_at <= now_unix_secs.saturating_sub(CLOCK_SKEW_SECS)
         || expires_at <= issued_at
+        || now_unix_secs.saturating_sub(issued_at) > MAX_ATTESTATION_AGE_SECS
         || expires_at.saturating_sub(issued_at) > MAX_ATTESTATION_LIFETIME_SECS
     {
         return Err(fail("Attestation is expired, not yet valid, or has an invalid lifetime."));
@@ -409,6 +413,24 @@ mod tests {
         ).is_err());
         assert!(verify_device_attestation(
             &envelope, &issuers, "baddielink-test", &[8; 32], &device_key, 7, 1_800_000_100,
+        ).is_err());
+    }
+
+    #[test]
+    fn rejects_attestation_that_is_valid_but_too_old_for_admission() {
+        let credential = vec![4; 32];
+        let device_key = vec![5; 32];
+        let (envelope, issuers, _) = fixture("active", "baddielink-test", &credential, &device_key);
+        // The fixture expires at 1_800_003_600. This timestamp is still inside
+        // that expiry window but more than the five-minute admission freshness.
+        assert!(verify_device_attestation(
+            &envelope,
+            &issuers,
+            "baddielink-test",
+            &credential,
+            &device_key,
+            7,
+            1_800_000_400,
         ).is_err());
     }
 
