@@ -59,6 +59,15 @@ begin
   end if;
 
   if old.status = 'active' and new.status = 'revoked' then
+    if exists (
+      select 1
+        from public.mls_membership_authorizations a
+       where a.consumed_at is not null
+         and a.applied_at is null
+         and (a.actor_device_id = old.id or a.target_device_id = old.id)
+    ) then
+      raise exception 'MLS device has a consumed membership authorization that must be finalized or reconciled before revocation';
+    end if;
     new.revoked_at := clock_timestamp();
   elsif new.status = 'active' then
     new.revoked_at := null;
