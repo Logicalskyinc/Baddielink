@@ -27,6 +27,8 @@ openmls_traits = "0.6.0"
 openmls_rust_crypto = "0.6.0"
 openmls_memory_storage = "0.6.0"
 ciborium = "0.2"
+coset = "=0.4.2"
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "sha256"] }
 openmls_basic_credential = "0.6.0"
 tls_codec = { version = "0.5", features = ["derive", "serde", "mls"] }
 console_error_panic_hook = { version = "0.1.7", optional = true }
