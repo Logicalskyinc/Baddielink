@@ -17,6 +17,7 @@ declare
   v_revocation_blocked boolean := false;
   v_device_reuse_rejected boolean := false;
   v_key_reuse_rejected boolean := false;
+  v_account_delete_blocked boolean := false;
 begin
   -- Existing room is mapped exactly once at version 1.
   select group_id, roster_version into v_group_id, v_version
@@ -378,7 +379,17 @@ begin
   if not v_key_reuse_rejected then
     raise exception 'revoked device signing key was reused by another registration';
   end if;
-end $$;
+
+  begin
+    delete from auth.users
+     where id = '10000000-0000-4000-8000-000000000003';
+  exception when foreign_key_violation then
+    v_account_delete_blocked := true;
+  end;
+  if not v_account_delete_blocked then
+    raise exception 'account deletion bypassed MLS device/audit cleanup';
+  end if;
+end $;
 
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
