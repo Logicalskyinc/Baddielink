@@ -48,7 +48,7 @@ The COSE_Sign1 payload is a deterministic-CBOR map with this version-1 claim set
 | `iss` | text | Stable registration-authority issuer identifier. |
 | `sub` | byte string | Opaque, non-PII account subject. Must be pseudonymous in the attestation audience/scope. |
 | `aud` | text or byte string | Exact BaddieLink MLS service/environment audience. Test and production audiences must differ. |
-| `cred` | byte string | 32 random bytes; exact BasicCredential identity for this device registration. |
+| `cred` | byte string | 32-byte SHA-256 hash of the exact serialized BasicCredential identity for this device registration. |
 | `device` | byte string | Opaque device-registration identifier, not a username or human-readable device name. |
 | `sig` | byte string | Exact 32-byte OpenMLS ED25519 signature public key represented by the KeyPackage/LeafNode. |
 | `iat` | unsigned integer | Issued-at Unix seconds. |
