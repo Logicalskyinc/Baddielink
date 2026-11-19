@@ -177,15 +177,19 @@ The current branch has implemented the following pieces:
 - OpenMLS cryptographic validation of the KeyPackage before the extracted binding is returned.
 - Native tests for KeyPackage tampering/trailing bytes and attestation signature, claim, audience, credential, key, expiry, status, and roster-version failures.
 
-These pieces are **not yet connected into an admission authorization decision**. In particular:
+These pieces are **not yet connected into a production admission authorization decision**. The current branch now fails closed in the default WASM build, but the actual authorization service is still absent.
 
-- The browser worker's `add-member` path currently calls `KeyPackage.from_bytes()` and then `Group.propose_and_commit_add()`. The first call validates MLS cryptographic structure and signatures; it does not validate a device-registration attestation.
+- The default/production WASM build does not export the browser-test membership-merge capability.
+- In that default build, worker-initiated Add, Remove, and Welcome join operations are rejected before MLS mutation or persistence.
+- Incoming staged Commits containing Add, Update, or Remove proposals are rejected before candidate state is persisted. Commits without membership changes can still be merged.
+- The isolated `browser-test-admission` feature exposes an explicit bypass solely so the Chromium integration suite can exercise membership and restart flows. It performs **no BaddieLink account/device authorization** and must never be used in release artifacts.
 - The worker does not yet obtain an authenticated roster version or device-status response.
 - No production issuer key, trust-store distribution mechanism, or registration service exists.
-- The verifier's current trusted-issuer argument is not an acceptable browser-facing configuration interface. A caller must never be allowed to supply the keys that establish its own trust.
-- Therefore, a KeyPackage accepted by the current experimental `add-member` path is **not proven to belong to an authorized BaddieLink account/device**.
+- Worker initialization still receives account/device metadata from its caller; those values are not authenticated identity assertions.
 
-Do not treat the current path as production-safe or enable it for real private-group admission. The next implementation gate is to connect the internal trust store to an authoritative registration/roster service and enforce attestation plus fresh roster authorization before any MLS membership mutation or persistence. The browser worker still does not enforce this gate.
+Therefore, the default build is admission-disabled, not production-ready. A KeyPackage's MLS cryptographic validity still does not prove that it belongs to an authorized BaddieLink account/device.
+
+Do not treat the current path as production-safe or enable it for real private-group admission. The next implementation gate is to connect the internal trust store to an authoritative registration/roster service and enforce attestation plus fresh roster authorization before any MLS membership mutation or persistence. The test-only bypass must remain isolated from release artifacts.
 
 
 
