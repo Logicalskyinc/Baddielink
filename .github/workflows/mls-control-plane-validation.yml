@@ -1,3 +1,4 @@
+# Runs only against a disposable PostgreSQL service; never targets hosted Supabase.
 name: MLS control-plane migration validation
 
 on:
