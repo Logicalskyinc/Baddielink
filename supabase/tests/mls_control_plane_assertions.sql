@@ -94,22 +94,46 @@ begin
      decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'))
   returning id into v_target_device;
 
-  -- Seed the already-established founder device in the authoritative MLS
-  -- roster. The target device is intentionally not present yet.
-  insert into public.mls_space_device_roster (
-    space_id, user_id, device_id, credential_id, signature_public_key
-  ) values (
-    '20000000-0000-4000-8000-000000000001',
-    '10000000-0000-4000-8000-000000000001',
-    v_actor_device,
-    decode(repeat('21',32),'hex'),
-    decode(repeat('31',32),'hex')
-  );
-
-  -- Return room to active. The target account must already pass the
-  -- ordinary BaddieLink room-membership gate before device admission.
+  -- Return room to active before the server-authorized first-device bootstrap.
   update public.spaces set status = 'active'
    where id = '20000000-0000-4000-8000-000000000001';
+
+  select b.group_id, b.roster_version
+    into v_group_id, v_version
+    from public.mls_bootstrap_space_device(
+      '20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001',
+      v_actor_device,
+      decode(repeat('21',32),'hex'),
+      decode(repeat('31',32),'hex')
+    ) b;
+
+  if not exists (
+    select 1 from public.mls_space_device_roster
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and user_id = '10000000-0000-4000-8000-000000000001'
+       and device_id = v_actor_device
+  ) then
+    raise exception 'owner first-device bootstrap did not create the roster entry';
+  end if;
+
+  -- Exact bootstrap retry must not duplicate the owner device or advance
+  -- the roster version a second time.
+  select b.group_id, b.roster_version
+    into v_group_id, v_version
+    from public.mls_bootstrap_space_device(
+      '20000000-0000-4000-8000-000000000001',
+      '10000000-0000-4000-8000-000000000001',
+      v_actor_device,
+      decode(repeat('21',32),'hex'),
+      decode(repeat('31',32),'hex')
+    ) b;
+
+  if (select count(*) from public.mls_space_device_roster
+       where space_id = '20000000-0000-4000-8000-000000000001') <> 1 then
+    raise exception 'idempotent bootstrap duplicated the owner device';
+  end if;
+
   insert into public.space_memberships (space_id, user_id, role, status)
   values (
     '20000000-0000-4000-8000-000000000001',
