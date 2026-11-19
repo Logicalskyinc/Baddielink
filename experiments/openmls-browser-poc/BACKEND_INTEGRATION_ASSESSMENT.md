@@ -18,10 +18,10 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Required backend additions
 
-1. **Device registry**: a server-owned record bound to `auth.users.id`, with device reference, credential ID, public signature key, lifecycle status, timestamps, and revocation. Never store device private keys or accept issuer trust keys from a browser.
+1. **Device registry**: a server-owned record bound to `auth.users.id`, with device reference, credential ID, unique public signature key, lifecycle status, timestamps, and revocation. The room roster and authorization target must be constrained to the exact registered credential/key tuple. Never store device private keys or accept issuer trust keys from a browser.
 2. **MLS room mapping**: map each `spaces.id` to one server-created opaque MLS group identifier. The browser must not invent or rebind this mapping.
 3. **Roster version and device projection**: monotonic version for each mapped room, incremented transactionally on account membership/role/status changes and room suspension/archive. A separate server-only per-room device projection binds registered device, account, SHA-256 hash of the serialized MLS BasicCredential identity, and exact signature public key. It deliberately stores no MLS leaf index. Existing rooms cannot be backfilled from account membership alone; their device projection remains empty until an authorized bootstrap/reconciliation process proves device-to-leaf bindings.
-4. **Membership authorization ledger**: server-only records bind room/group, authenticated actor/device, one operation, resolved target device/credential/key, current roster version, exact Commit digest, expiry, unique authorization ID, and consumption/application state. Consume reserves the room under a row lock; finalization after local durable persistence applies the device projection, advances the roster version, and releases the reservation. A pending reservation blocks competing authorizations. Exact retries are idempotent only for the same authorization and digest.
+4. **Membership authorization ledger**: server-only records bind room/group, authenticated actor/device, one supported operation (`add` or `remove`), resolved target device/credential/key, current roster version, exact Commit digest, expiry, unique authorization ID, and consumption/application state. Consume reserves the room under a row lock; finalization after local durable persistence applies the device projection, advances the roster version, and releases the reservation. A pending reservation blocks competing authorizations. Exact retries are idempotent only for the same authorization and digest.
 5. **Authenticated server endpoints**: verify the Supabase access token; derive actor from verified identity; check current membership, role, device status, room status, target, and roster version server-side. Never trust actor IDs, role, leaf index, target identity, or roster version supplied by the browser.
 6. **Signing and trust**: define a versioned room-authorization assertion distinct from the existing generic device-attestation v1. Provision issuer private key only in server secrets, publish/rotate its public trust anchor through a controlled release, and keep production trust empty until this is ready.
 7. **Worker integration**: inspect and stage MLS Commit, request exact room authorization, verify internally, consume once, merge, persist journal, then publish. Any failure before merge leaves committed group state unchanged.
@@ -38,7 +38,7 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Current status
 
-- [x] Read-only Supabase migration inventory: 19 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
+- [x] Read-only Supabase migration inventory: 22 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
@@ -47,7 +47,8 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 - [x] Require exactly one membership proposal per Commit until batch authorization is designed.
 - [x] Worker staged proposal inspection now emits SHA-256 credential hashes for Add/Update/Remove and resolves Remove to the current MLS member's credential/key binding.
 - [x] Worker rejects compound membership Commits while the authorization record remains single-target.
-- [x] Draft repository-only SQL source (kept outside migrations until CLI generation and validation): `supabase/drafts/mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).
+- [x] Draft repository-only SQL source (kept outside migrations until CLI generation and validation): `supabase/drafts/mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume/finalize primitives).
+- [x] Static review corrected post-finalization consume idempotency, constrained roster and target bindings to the exact registered device credential/key, and removed the unsupported `update` operation until a rekey protocol exists.
 - [ ] Validate the SQL draft against a disposable PostgreSQL/Supabase database. The repository now includes a PostgreSQL CI workflow and fixtures covering room mapping, roster version changes, account membership gating, device admission/removal, pending reservation concurrency, exact retry, digest mismatch, revocation, finalization, and grants. CI has not yet been confirmed green.
 - [ ] Implement authenticated Edge Functions for device registration, authorization issuance, consume, and finalize.
 - [ ] Connect the worker to the authenticated consume/finalize endpoints and complete the rejection matrix.
