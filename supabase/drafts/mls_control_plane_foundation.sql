@@ -401,6 +401,8 @@ declare
   v_current_roster_version bigint;
   v_pending_authorization_id uuid;
   v_space_active boolean;
+  v_space_owner_id uuid;
+  v_owner_device_count bigint;
   v_actor_can_manage boolean;
   v_actor_is_in_roster boolean;
   v_target_is_in_roster boolean;
@@ -437,8 +439,8 @@ begin
   end if;
 
   select g.roster_version, g.pending_authorization_id,
-         (s.status = 'active')
-    into v_current_roster_version, v_pending_authorization_id, v_space_active
+         (s.status = 'active'), s.owner_id
+    into v_current_roster_version, v_pending_authorization_id, v_space_active, v_space_owner_id
     from public.mls_space_groups g
     join public.spaces s on s.id = g.space_id
    where g.space_id = v_space_id
@@ -545,6 +547,18 @@ begin
   elsif v_operation in ('update', 'remove') then
     if not coalesce(v_target_is_in_roster, false) then
       return false;
+    end if;
+
+    if v_operation = 'remove' and v_target_user_id = v_space_owner_id then
+      select count(*)
+        into v_owner_device_count
+        from public.mls_space_device_roster r
+       where r.space_id = v_space_id
+         and r.user_id = v_space_owner_id;
+
+      if v_owner_device_count <= 1 then
+        return false;
+      end if;
     end if;
 
     if v_operation = 'update' then
