@@ -341,7 +341,7 @@ begin
   if not v_key_reuse_rejected then
     raise exception 'revoked device signing key was reused by another registration';
   end if;
-end $;
+end $$;
 
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
