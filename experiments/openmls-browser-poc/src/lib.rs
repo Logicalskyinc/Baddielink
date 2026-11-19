@@ -393,6 +393,21 @@ impl Group {
             changes.push(entry.as_ref());
         }
 
+        for queued in staged.remove_proposals() {
+            let entry = Object::new();
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("kind"),
+                &JsValue::from_str("remove"),
+            ).map_err(|_| JsError::new("Could not encode staged Remove proposal metadata."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("removedLeafIndex"),
+                &JsValue::from_str(&format!("{:?}", queued.remove_proposal().removed())),
+            ).map_err(|_| JsError::new("Could not encode staged Remove leaf index."))?;
+            changes.push(entry.as_ref());
+        }
+
         Ok(changes.into())
     }
 
