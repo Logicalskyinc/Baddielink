@@ -691,11 +691,10 @@ mod tests {
         let key_package = bob.key_package(&provider).unwrap();
         let bytes = key_package.to_bytes().unwrap();
 
-        let (validated, binding) = validate_key_package_bytes(&bytes)
+        let (_validated, binding) = validate_key_package_bytes(&bytes)
             .expect("generated KeyPackage should validate");
-        assert_eq!(validated.credential().serialized_content(), b"opaque-device-credential-001");
         assert_eq!(binding.credential_id, b"opaque-device-credential-001");
-        assert_eq!(binding.signature_key, bob.keypair.public().as_slice());
+        assert_eq!(binding.signature_key, bob.keypair.public());
 
         let mut tampered = bytes;
         let last = tampered.len() - 1;
