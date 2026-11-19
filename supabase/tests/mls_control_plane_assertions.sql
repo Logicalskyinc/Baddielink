@@ -49,7 +49,7 @@ begin
   select roster_version into v_version
     from public.mls_space_groups
    where space_id = '20000000-0000-4000-8000-000000000001';
-  if v_version <> 2 then raise exception 'membership insert did not increment roster'; end if;
+  if v_version <> 1 then raise exception 'account membership insert changed the MLS device roster version'; end if;
 
   update public.space_memberships
      set role = 'moderator'
@@ -58,7 +58,7 @@ begin
   select roster_version into v_version
     from public.mls_space_groups
    where space_id = '20000000-0000-4000-8000-000000000001';
-  if v_version <> 3 then raise exception 'role update did not increment roster once'; end if;
+  if v_version <> 1 then raise exception 'account role update changed the MLS device roster version'; end if;
 
   update public.space_memberships
      set status = 'removed'
@@ -67,14 +67,14 @@ begin
   select roster_version into v_version
     from public.mls_space_groups
    where space_id = '20000000-0000-4000-8000-000000000001';
-  if v_version <> 4 then raise exception 'status update did not increment roster once'; end if;
+  if v_version <> 1 then raise exception 'account membership status update changed the MLS device roster version'; end if;
 
   update public.spaces set status = 'suspended'
    where id = '20000000-0000-4000-8000-000000000001';
   select roster_version into v_version
     from public.mls_space_groups
    where space_id = '20000000-0000-4000-8000-000000000001';
-  if v_version <> 5 then raise exception 'room status did not increment roster once'; end if;
+  if v_version <> 2 then raise exception 'room status did not invalidate the MLS roster version'; end if;
 
   -- Prepare actor and target device registrations against real auth users.
   insert into public.mls_devices
