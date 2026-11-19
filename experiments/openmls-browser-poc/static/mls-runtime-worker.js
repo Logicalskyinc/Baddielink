@@ -454,6 +454,16 @@ async function receiveMessage(data) {
   // The explicit browser-test build has a test-only merge escape hatch so the
   // integration suite can continue exercising Welcome and membership flows.
   const stagedChanges = candidateGroup.pending_commit_membership_bindings();
+  for (const change of stagedChanges) {
+    if (!(change.credentialId instanceof Uint8Array) ||
+        change.credentialId.byteLength !== 32 ||
+        !(change.signatureKey instanceof Uint8Array) ||
+        change.signatureKey.byteLength !== 32) {
+      throw new Error(
+        "MLS membership Commit rejected: proposal is missing a canonical credential/key binding."
+      );
+    }
+  }
   if (stagedChanges.length > 1) {
     // The current server authorization record binds exactly one target and
     // operation to a Commit digest. Reject compound membership Commits until
