@@ -16,6 +16,7 @@ declare
   v_result boolean;
   v_revocation_blocked boolean := false;
   v_device_reuse_rejected boolean := false;
+  v_key_reuse_rejected boolean := false;
 begin
   -- Existing room is mapped exactly once at version 1.
   select group_id, roster_version into v_group_id, v_version
@@ -326,6 +327,19 @@ begin
   end;
   if not v_device_reuse_rejected then
     raise exception 'revoked device identifier was reused for a new registration';
+  end if;
+
+  begin
+    insert into public.mls_devices
+      (user_id, device_id, credential_id, signature_public_key)
+    values
+      ('10000000-0000-4000-8000-000000000003', decode(repeat('14',16),'hex'),
+       decode(repeat('25',32),'hex'), decode(repeat('33',32),'hex'));
+  exception when unique_violation then
+    v_key_reuse_rejected := true;
+  end;
+  if not v_key_reuse_rejected then
+    raise exception 'revoked device signing key was reused by another registration';
   end if;
 end $;
 
