@@ -261,6 +261,54 @@ mod tests {
         Value::Map(values.into_iter().map(|(k, v)| (Value::Text(k.into()), v)).collect())
     }
 
+    use coset::{CoseSign1Builder, HeaderBuilder};
+    use p256::ecdsa::SigningKey;
+
+    const TEST_NOW: u64 = 1_800_000_100;
+
+    fn signed_fixture(aad: &[u8]) -> (Vec<u8>, Vec<RoomAuthorizationIssuerKey>) {
+        let signing_key = SigningKey::from_bytes((&[11u8; 32]).into()).expect("test issuer key");
+        let public_key = signing_key.verifying_key().to_encoded_point(false).as_bytes().to_vec();
+        let key_id = b"room-auth-test-key".to_vec();
+        let mut value = valid_claims();
+        if let Value::Map(entries) = &mut value {
+            for (key, claim) in entries {
+                match key {
+                    Value::Text(name) if name == "iat" => *claim = Value::Integer(1_800_000_090u64.into()),
+                    Value::Text(name) if name == "exp" => *claim = Value::Integer(1_800_000_180u64.into()),
+                    _ => {}
+                }
+            }
+        }
+        let payload = canonical_bytes(&value).expect("canonical claims");
+        let envelope = CoseSign1Builder::new()
+            .protected(HeaderBuilder::new()
+                .algorithm(iana::Algorithm::ES256)
+                .key_id(key_id.clone())
+                .build())
+            .payload(payload)
+            .create_signature(aad, |data| {
+                use p256::ecdsa::signature::Signer;
+                let signature: Signature = signing_key.sign(data);
+                signature.to_bytes().to_vec()
+            })
+            .build()
+            .to_vec()
+            .expect("COSE room authorization");
+        (envelope, vec![RoomAuthorizationIssuerKey {
+            key_id, public_key, issuer: "baddielink-test-issuer".into(),
+        }])
+    }
+
+    fn verify_fixture(
+        envelope: &[u8], issuers: &[RoomAuthorizationIssuerKey], now: u64,
+    ) -> Result<RoomAuthorizationClaims, String> {
+        verify_room_authorization(
+            envelope, issuers, &[1; 16], "add", &[2; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 9, &[10; 32], now,
+        )
+    }
+
     #[test]
     fn accepts_exact_v1_claim_set() {
         assert!(validate_exact_claims(&valid_claims()).is_ok());
@@ -339,4 +387,63 @@ mod tests {
         }
         assert!(fixed::<16>(&wrong_length, "group").is_err());
     }
+    #[test]
+    fn accepts_valid_signed_room_authorization() {
+        let (envelope, issuers) = signed_fixture(EXTERNAL_AAD);
+        let claims = verify_fixture(&envelope, &issuers, TEST_NOW).expect("valid assertion");
+        assert_eq!(claims.operation, "add");
+        assert_eq!(claims.roster_version, 9);
+        assert_eq!(claims.issued_at, 1_800_000_090);
+        assert_eq!(claims.expires_at, 1_800_000_180);
+    }
+
+    #[test]
+    fn rejects_tampered_signature_and_unknown_issuer_key() {
+        let (mut envelope, issuers) = signed_fixture(EXTERNAL_AAD);
+        let last = envelope.len() - 1;
+        envelope[last] ^= 1;
+        assert!(verify_fixture(&envelope, &issuers, TEST_NOW).is_err());
+        let (envelope, _) = signed_fixture(EXTERNAL_AAD);
+        assert!(verify_fixture(&envelope, &[], TEST_NOW).is_err());
+    }
+
+    #[test]
+    fn rejects_signature_created_with_wrong_external_aad() {
+        let (envelope, issuers) = signed_fixture(b"incorrect-external-aad");
+        assert!(verify_fixture(&envelope, &issuers, TEST_NOW).is_err());
+    }
+
+    #[test]
+    fn rejects_expired_and_future_issued_assertions() {
+        let (envelope, issuers) = signed_fixture(EXTERNAL_AAD);
+        assert!(verify_fixture(&envelope, &issuers, 1_800_000_181).is_err());
+        assert!(verify_fixture(&envelope, &issuers, 1_800_000_000).is_err());
+    }
+
+    #[test]
+    fn rejects_mismatched_group_actor_target_roster_and_commit_digest() {
+        let (envelope, issuers) = signed_fixture(EXTERNAL_AAD);
+        assert!(verify_room_authorization(
+            &envelope, &issuers, &[99; 16], "add", &[2; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 9, &[10; 32], TEST_NOW,
+        ).is_err());
+        assert!(verify_room_authorization(
+            &envelope, &issuers, &[1; 16], "remove", &[2; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 9, &[10; 32], TEST_NOW,
+        ).is_err());
+        assert!(verify_room_authorization(
+            &envelope, &issuers, &[1; 16], "add", &[99; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 9, &[10; 32], TEST_NOW,
+        ).is_err());
+        assert!(verify_room_authorization(
+            &envelope, &issuers, &[1; 16], "add", &[2; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 10, &[10; 32], TEST_NOW,
+        ).is_err());
+        assert!(verify_room_authorization(
+            &envelope, &issuers, &[1; 16], "add", &[2; 16], &[3; 16], &[4; 16],
+            &[5; 16], &[6; 32], &[7; 32], 9, &[77; 32], TEST_NOW,
+        ).is_err());
+    }
+
+
 }
