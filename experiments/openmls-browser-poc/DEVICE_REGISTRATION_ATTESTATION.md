@@ -89,7 +89,7 @@ Every verifier must:
 2. Require the expected protected algorithm (`ES256`) and a known `kid`; reject algorithm substitution and untrusted issuer keys.
 3. Verify the COSE signature over the exact encoded Sig_structure and configured external AAD.
 4. Decode deterministic CBOR and validate all required fields, types, lengths, version, issuer, and audience.
-5. Require `iat <= now < exp`, with a small explicitly configured clock-skew allowance. Reject excessive token lifetime.
+5. Require `iat <= now < exp`, with a small explicitly configured clock-skew allowance. Reject excessive token lifetime and require the assertion to have been issued within the previous five minutes for membership admission.
 6. Require `status == active`.
 7. Compare `cred` byte-for-byte with the BasicCredential identity.
 8. Compare `sig` byte-for-byte with the exact KeyPackage or LeafNode signature public key.
@@ -97,6 +97,9 @@ Every verifier must:
 10. Reject unknown, duplicate, mismatched, revoked, or ambiguous account/device/credential bindings. Fail closed when the status source is unavailable or too stale for the operation.
 
 A successful local signature check is necessary but not sufficient. Authorization requires both a valid attestation and a policy/status decision.
+
+The verifier currently enforces a five-minute maximum assertion age for admission, in addition to the seven-day absolute maximum lifetime and 60-second clock-skew allowance. The shorter age is the relevant admission freshness bound: the issuer must have recently re-confirmed the device's active registration status. This does not replace an authenticated room-authorization decision, and it does not provide immediate revocation for already-admitted members. The five-minute value is an experimental policy constant that must be revisited against service availability and revocation requirements.
+
 
 ## 6. Trust anchors, rotation, and revocation
 
