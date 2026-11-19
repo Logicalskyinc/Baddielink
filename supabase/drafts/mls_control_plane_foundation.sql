@@ -464,6 +464,18 @@ set search_path = ''
 as $function$
 begin
   if new.status is distinct from old.status then
+    -- A consumed authorization owns a room-level reservation until its exact
+    -- Commit is finalized. Reject status transitions rather than advancing
+    -- the roster version and stranding that reservation.
+    if exists (
+      select 1
+        from public.mls_space_groups g
+       where g.space_id = new.id
+         and g.pending_authorization_id is not null
+    ) then
+      raise exception 'Room status cannot change while an MLS membership authorization is pending';
+    end if;
+
     perform private.mls_bump_space_roster_version(new.id);
   end if;
   return new;
