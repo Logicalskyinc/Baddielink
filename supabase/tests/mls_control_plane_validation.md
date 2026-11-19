@@ -12,9 +12,9 @@ This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It
 - Confirm rollback leaves the original room and membership schema unchanged.
 
 ### Access control
-- As `anon` and `authenticated`, verify SELECT/INSERT/UPDATE/DELETE are denied on all three MLS control-plane tables.
+- As `anon` and `authenticated`, verify SELECT/INSERT/UPDATE/DELETE are denied on all four MLS control-plane tables.
 - Verify `authenticated` cannot execute the consume function.
-- Verify `service_role` can execute the consume function.
+- Verify `service_role` can execute both consume and finalize functions.
 - Verify trigger functions cannot be called as RPCs by browser roles.
 - Verify no new RLS policy accidentally grants client access.
 
@@ -50,7 +50,7 @@ This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It
 - Verify unsupported `update` authorizations are rejected until a device-rekey protocol is implemented.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
-- Verify target device belongs to target account through the composite foreign key.
+- Verify target device, account, credential ID, and signing public key match through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
 
 ## Follow-up implementation not included in this migration
