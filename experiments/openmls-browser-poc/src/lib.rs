@@ -5,7 +5,7 @@ mod utils;
 
 use js_sys::Uint8Array;
 use openmls::{
-    credentials::{BasicCredential, CredentialWithKey},
+    credentials::{BasicCredential, CredentialType, CredentialWithKey},
     framing::{MlsMessageBodyIn, MlsMessageIn, MlsMessageOut},
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     key_packages::KeyPackage as OpenMlsKeyPackage,
@@ -497,32 +497,97 @@ impl std::fmt::Display for NoWelcomeError {
 
 impl std::error::Error for NoWelcomeError {}
 
+/// The credential and signature-key bytes extracted from a cryptographically
+/// validated incoming KeyPackage. This is metadata for the registration
+/// verifier, not an authorization decision by itself.
+struct ValidatedKeyPackageBinding {
+    credential_id: Vec<u8>,
+    signature_key: Vec<u8>,
+}
+
+fn validate_key_package_bytes(
+    bytes: &[u8],
+) -> Result<(OpenMlsKeyPackage, ValidatedKeyPackageBinding), String> {
+    let mut remaining = bytes;
+    let key_package_in = openmls::key_packages::KeyPackageIn::tls_deserialize(&mut remaining)
+        .map_err(|e| format!("KeyPackage deserialization error: {e}"))?;
+    if !remaining.is_empty() {
+        return Err("KeyPackage contains trailing bytes.".into());
+    }
+
+    // Extract the binding from the exact object being validated. Never accept
+    // a separately supplied identity or signature key from the caller.
+    let credential_with_key = key_package_in.unverified_credential();
+    if credential_with_key.credential.credential_type() != CredentialType::Basic {
+        return Err("Only BasicCredential is supported by this registration verifier.".into());
+    }
+    let binding = ValidatedKeyPackageBinding {
+        credential_id: credential_with_key.credential.serialized_content().to_vec(),
+        signature_key: credential_with_key.signature_key.as_slice().to_vec(),
+    };
+
+    // The extracted fields are untrusted until OpenMLS validates the complete
+    // KeyPackage and its LeafNode signatures, lifetime, ciphersuite and version.
+    let key_package = key_package_in
+        .validate(
+            &openmls_rust_crypto::RustCrypto::default(),
+            openmls::prelude::ProtocolVersion::Mls10,
+        )
+        .map_err(|e| format!("KeyPackage validation error: {e}"))?;
+
+    Ok((key_package, binding))
+}
+
 #[wasm_bindgen]
 pub struct KeyPackage(OpenMlsKeyPackage);
 
 #[wasm_bindgen]
+pub struct KeyPackageBinding {
+    credential_id: Vec<u8>,
+    signature_key: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl KeyPackageBinding {
+    #[wasm_bindgen(getter)]
+    pub fn credential_id(&self) -> Vec<u8> {
+        self.credential_id.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn signature_key(&self) -> Vec<u8> {
+        self.signature_key.clone()
+    }
+}
+
+#[wasm_bindgen]
 impl KeyPackage {
-    /// Serialize this KeyPackage to bytes
-    #[wasm_bindgen]
+    /// Serialize this validated KeyPackage to bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
         self.0
             .tls_serialize_detached()
             .map_err(|e| JsError::new(&format!("KeyPackage serialization failed: {e}")))
     }
 
-    /// Deserialize a KeyPackage from bytes
-    #[wasm_bindgen]
+    /// Deserialize and cryptographically validate a KeyPackage.
     pub fn from_bytes(bytes: &[u8]) -> Result<KeyPackage, JsError> {
-        let mut s = bytes;
-        let kp_in = openmls::key_packages::KeyPackageIn::tls_deserialize(&mut s)
-            .map_err(|e| JsError::new(&format!("KeyPackage deserialization error: {e}")))?;
-        let kp = kp_in
-            .validate(
-                &openmls_rust_crypto::RustCrypto::default(),
-                openmls::prelude::ProtocolVersion::Mls10,
-            )
-            .map_err(|e| JsError::new(&format!("KeyPackage validation error: {e}")))?;
-        Ok(KeyPackage(kp))
+        let (key_package, _) = validate_key_package_bytes(bytes)
+            .map_err(|e| JsError::new(&e))?;
+        Ok(KeyPackage(key_package))
+    }
+
+    /// Extract the exact BasicCredential identity and signature public key
+    /// from a KeyPackage only after OpenMLS cryptographic validation succeeds.
+    /// The returned binding is not itself proof of account/device authorization.
+    pub fn validated_registration_binding(
+        bytes: &[u8],
+    ) -> Result<KeyPackageBinding, JsError> {
+        let (_, binding) = validate_key_package_bytes(bytes)
+            .map_err(|e| JsError::new(&e))?;
+        Ok(KeyPackageBinding {
+            credential_id: binding.credential_id,
+            signature_key: binding.signature_key,
+        })
     }
 }
 
@@ -614,6 +679,42 @@ mod tests {
             bob,
             chess_club_bob,
         )
+    }
+
+    #[test]
+    fn key_package_binding_comes_from_validated_mls_object() {
+        let provider = Provider::new();
+        let bob = Identity::new(&provider, "opaque-device-credential-001")
+            .map_err(js_error_to_string)
+            .unwrap();
+        let key_package = bob.key_package(&provider).unwrap();
+        let bytes = key_package.to_bytes().unwrap();
+
+        let (validated, binding) = validate_key_package_bytes(&bytes)
+            .expect("generated KeyPackage should validate");
+        assert_eq!(validated.credential().serialized_content(), b"opaque-device-credential-001");
+        assert_eq!(binding.credential_id, b"opaque-device-credential-001");
+        assert_eq!(binding.signature_key, bob.keypair.public());
+
+        let mut tampered = bytes;
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert!(
+            validate_key_package_bytes(&tampered).is_err(),
+            "tampered KeyPackage must not produce a trusted binding"
+        );
+    }
+
+    #[test]
+    fn key_package_parser_rejects_trailing_data() {
+        let provider = Provider::new();
+        let bob = Identity::new(&provider, "opaque-device-credential-002")
+            .map_err(js_error_to_string)
+            .unwrap();
+        let key_package = bob.key_package(&provider).unwrap();
+        let mut bytes = key_package.to_bytes().unwrap();
+        bytes.push(0);
+        assert!(validate_key_package_bytes(&bytes).is_err());
     }
 
     #[test]
