@@ -453,7 +453,7 @@ async function receiveMessage(data) {
   // an authenticated registration/roster authorization service is connected.
   // The explicit browser-test build has a test-only merge escape hatch so the
   // integration suite can continue exercising Welcome and membership flows.
-  const stagedChanges = candidateGroup.pending_commit_add_update_bindings();
+  const stagedChanges = candidateGroup.pending_commit_membership_bindings();
   if (stagedChanges.length > 1) {
     // The current server authorization record binds exactly one target and
     // operation to a Commit digest. Reject compound membership Commits until
