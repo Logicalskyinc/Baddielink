@@ -303,6 +303,19 @@ begin
     raise exception 'Remove finalization left the target device in the MLS roster';
   end if;
 
+  -- Once the device has been removed from every room, revocation is allowed.
+  update public.mls_devices
+     set status = 'revoked'
+   where id = v_target_device;
+  if not exists (
+    select 1 from public.mls_devices
+     where id = v_target_device
+       and status = 'revoked'
+       and revoked_at is not null
+  ) then
+    raise exception 'removed MLS device could not be revoked';
+  end if;
+
   -- A target device revoked after authorization issuance must not be added.
   insert into public.mls_devices
     (user_id, device_id, credential_id, signature_public_key)
