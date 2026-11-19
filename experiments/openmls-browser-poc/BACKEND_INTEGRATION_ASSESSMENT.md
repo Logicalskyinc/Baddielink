@@ -42,7 +42,8 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
-- [x] Draft repository-only migration source: `supabase/migrations/20261119150000_mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).\n- [ ] Validate the migration against a disposable/local Supabase database. The current execution environment has no Supabase CLI, PostgreSQL client/server, or Docker runtime, so SQL execution and concurrency testing have not been performed.
+- [x] Draft repository-only migration source: `supabase/migrations/20261119150000_mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).
+- [ ] Validate the migration against a disposable/local Supabase database. The current execution environment has no Supabase CLI, PostgreSQL client/server, or Docker runtime, so SQL execution and concurrency testing have not been performed.
 - [ ] Implement and test authenticated Edge Functions and atomic authorization consumption.
 - [ ] Implement worker integration and rejection matrix.
 - [ ] Configure issuer key, rotation, and production trust anchor after security review.
