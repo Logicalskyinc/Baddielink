@@ -17,6 +17,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_memory_storage::MemoryStorage;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{types::Ciphersuite, OpenMlsProvider};
+use sha2::{Digest, Sha256};
 use tls_codec::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -165,6 +166,13 @@ impl Identity {
     }
 }
 
+
+/// Stable 32-byte application identifier for an MLS credential.
+/// The raw BasicCredential identity can be variable length and must never be
+/// confused with the fixed-size credential binding used by server records.
+fn credential_id_hash(credential: &Credential) -> Vec<u8> {
+    Sha256::digest(credential.serialized_content()).to_vec()
+}
 
 /// Bind a staged Welcome's local leaf to the exact credential and signature
 /// key held by this worker's restored identity.
@@ -369,7 +377,7 @@ impl Group {
             Reflect::set(
                 entry.as_ref(),
                 &JsValue::from_str("credentialId"),
-                &Uint8Array::from(leaf.credential().serialized_content()).into(),
+                &Uint8Array::from(credential_id_hash(leaf.credential())).into(),
             ).map_err(|_| JsError::new("Could not encode staged Add credential."))?;
             Reflect::set(
                 entry.as_ref(),
@@ -407,11 +415,29 @@ impl Group {
                 &JsValue::from_str("kind"),
                 &JsValue::from_str("remove"),
             ).map_err(|_| JsError::new("Could not encode staged Remove proposal metadata."))?;
+            let removed_index = queued.remove_proposal().removed();
+            // The server authorizes a device/credential identity, never a
+            // caller-selected leaf index. Resolve the authenticated MLS leaf
+            // locally and return both so the worker can compare them against
+            // the signed target binding before merge.
+            let member = self.mls_group.members()
+                .find(|member| member.index == removed_index)
+                .ok_or_else(|| JsError::new("Staged Remove target is absent from the current MLS roster."))?;
             Reflect::set(
                 entry.as_ref(),
                 &JsValue::from_str("removedLeafIndex"),
-                &JsValue::from_str(&format!("{:?}", queued.remove_proposal().removed())),
+                &JsValue::from_str(&format!("{:?}", removed_index)),
             ).map_err(|_| JsError::new("Could not encode staged Remove leaf index."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("credentialId"),
+                &Uint8Array::from(credential_id_hash(&member.credential)).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Remove credential binding."))?;
+            Reflect::set(
+                entry.as_ref(),
+                &JsValue::from_str("signatureKey"),
+                &Uint8Array::from(member.signature_key).into(),
+            ).map_err(|_| JsError::new("Could not encode staged Remove signature key."))?;
             changes.push(entry.as_ref());
         }
 
@@ -679,7 +705,7 @@ fn validate_key_package_bytes(
         return Err("Only BasicCredential is supported by this registration verifier.".into());
     }
     let binding = ValidatedKeyPackageBinding {
-        credential_id: credential_with_key.credential.serialized_content().to_vec(),
+        credential_id: Sha256::digest(credential_with_key.credential.serialized_content()).to_vec(),
         signature_key: credential_with_key.signature_key.as_slice().to_vec(),
     };
 
