@@ -15,6 +15,7 @@ declare
   v_wrong_digest bytea := decode(repeat('cd', 32), 'hex');
   v_result boolean;
   v_revocation_blocked boolean := false;
+  v_device_reuse_rejected boolean := false;
 begin
   -- Existing room is mapped exactly once at version 1.
   select group_id, roster_version into v_group_id, v_version
@@ -313,7 +314,20 @@ begin
   if v_result is not false then
     raise exception 'authorization for revoked target device was accepted';
   end if;
-end $$;
+
+  begin
+    insert into public.mls_devices
+      (user_id, device_id, credential_id, signature_public_key)
+    values
+      ('10000000-0000-4000-8000-000000000003', decode(repeat('13',16),'hex'),
+       decode(repeat('24',32),'hex'), decode(repeat('34',32),'hex'));
+  exception when unique_violation then
+    v_device_reuse_rejected := true;
+  end;
+  if not v_device_reuse_rejected then
+    raise exception 'revoked device identifier was reused for a new registration';
+  end if;
+end $;
 
 -- Browser roles must not be able to read or execute privileged data/functions.
 do $$
