@@ -530,15 +530,6 @@ begin
     end if;
   end if;
 
-  update public.mls_membership_authorizations
-     set consumed_at = clock_timestamp()
-   where id = p_authorization_id
-     and consumed_at is null;
-
-  if not found then
-    return false;
-  end if;
-
   update public.mls_space_groups
      set pending_authorization_id = p_authorization_id
    where space_id = v_space_id
@@ -546,7 +537,20 @@ begin
      and roster_version = v_roster_version
      and pending_authorization_id is null;
 
-  return found;
+  if not found then
+    return false;
+  end if;
+
+  update public.mls_membership_authorizations
+     set consumed_at = clock_timestamp()
+   where id = p_authorization_id
+     and consumed_at is null;
+
+  if not found then
+    raise exception 'MLS authorization was not consumable after acquiring its room lock';
+  end if;
+
+  return true;
 end;
 $function$;
 
