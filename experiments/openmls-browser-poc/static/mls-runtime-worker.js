@@ -434,6 +434,21 @@ async function receiveMessage(data) {
   const plaintext = new Uint8Array(candidateGroup.process_message(
     candidateProvider, new Uint8Array(data.ciphertext)
   ));
+
+  // process_message now retains authenticated MLS Commits for review instead
+  // of merging them. Production WASM intentionally has no merge method until
+  // an authenticated registration/roster authorization service is connected.
+  // The explicit browser-test build has a test-only merge escape hatch so the
+  // integration suite can continue exercising Welcome and membership flows.
+  const stagedChanges = candidateGroup.pending_commit_add_update_bindings();
+  const mergeForBrowserTest = candidateGroup.merge_staged_commit_for_browser_test;
+  if (typeof mergeForBrowserTest !== "function") {
+    throw new Error(
+      "MLS Commit is staged but cannot be merged: device authorization is not configured in this build."
+    );
+  }
+  mergeForBrowserTest.call(candidateGroup, candidateProvider);
+
   const committedGeneration = await persistCandidate(
     candidateProvider, candidateGroup, candidateIdentity, data.faultAt || null
   );
