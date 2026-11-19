@@ -33,6 +33,9 @@ create table public.mls_devices (
 create unique index mls_devices_user_device_unique
   on public.mls_devices (user_id, device_id);
 
+create unique index mls_devices_signature_key_unique
+  on public.mls_devices (signature_public_key);
+
 create index mls_devices_user_status_idx
   on public.mls_devices (user_id, status);
 
