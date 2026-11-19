@@ -1,0 +1,163 @@
+\set ON_ERROR_STOP on
+
+do $$
+declare
+  v_group_id uuid;
+  v_version bigint;
+  v_actor_device uuid;
+  v_target_device uuid;
+  v_auth_id uuid;
+  v_digest bytea := decode(repeat('ab', 32), 'hex');
+  v_wrong_digest bytea := decode(repeat('cd', 32), 'hex');
+  v_result boolean;
+begin
+  -- Existing room is mapped exactly once at version 1.
+  select group_id, roster_version into v_group_id, v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+  if v_group_id is null or v_version <> 1 then
+    raise exception 'existing room MLS mapping/backfill failed';
+  end if;
+
+  -- New room gets a mapping through its trigger.
+  insert into public.spaces (id, owner_id, status)
+  values (
+    '20000000-0000-4000-8000-000000000002',
+    '10000000-0000-4000-8000-000000000002',
+    'active'
+  );
+  if not exists (
+    select 1 from public.mls_space_groups
+     where space_id = '20000000-0000-4000-8000-000000000002'
+       and roster_version = 1
+  ) then
+    raise exception 'new room MLS mapping trigger failed';
+  end if;
+
+  -- Membership insert and role/status changes each increment exactly once.
+  insert into public.space_memberships (space_id, user_id, role, status)
+  values (
+    '20000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000002',
+    'member',
+    'active'
+  );
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+  if v_version <> 2 then raise exception 'membership insert did not increment roster'; end if;
+
+  update public.space_memberships
+     set role = 'moderator'
+   where space_id = '20000000-0000-4000-8000-000000000001'
+     and user_id = '10000000-0000-4000-8000-000000000002';
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+  if v_version <> 3 then raise exception 'role update did not increment roster once'; end if;
+
+  update public.space_memberships
+     set status = 'removed'
+   where space_id = '20000000-0000-4000-8000-000000000001'
+     and user_id = '10000000-0000-4000-8000-000000000002';
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+  if v_version <> 4 then raise exception 'status update did not increment roster once'; end if;
+
+  update public.spaces set status = 'suspended'
+   where id = '20000000-0000-4000-8000-000000000001';
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+  if v_version <> 5 then raise exception 'room status did not increment roster once'; end if;
+
+  -- Prepare actor and target device registrations against real auth users.
+  insert into public.mls_devices
+    (user_id, device_id, credential_id, signature_public_key)
+  values
+    ('10000000-0000-4000-8000-000000000001', decode(repeat('11',16),'hex'),
+     decode(repeat('21',32),'hex'), decode(repeat('31',32),'hex'))
+  returning id into v_actor_device;
+
+  insert into public.mls_devices
+    (user_id, device_id, credential_id, signature_public_key)
+  values
+    ('10000000-0000-4000-8000-000000000003', decode(repeat('12',16),'hex'),
+     decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'))
+  returning id into v_target_device;
+
+  -- Return room to active and use the current roster version.
+  update public.spaces set status = 'active'
+   where id = '20000000-0000-4000-8000-000000000001';
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+
+  insert into public.mls_membership_authorizations (
+    space_id, group_id, actor_user_id, actor_device_id, operation,
+    target_user_id, target_device_id, target_credential_id,
+    target_signature_public_key, roster_version, commit_digest, expires_at
+  )
+  select
+    g.space_id, g.group_id,
+    '10000000-0000-4000-8000-000000000001', v_actor_device, 'add',
+    '10000000-0000-4000-8000-000000000003', v_target_device,
+    decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'),
+    g.roster_version, v_digest, clock_timestamp() + interval '90 seconds'
+  from public.mls_space_groups g
+  where g.space_id = '20000000-0000-4000-8000-000000000001'
+  returning id into v_auth_id;
+
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_digest
+  );
+  if v_result is not true then raise exception 'valid authorization consume failed'; end if;
+
+  -- Exact retry is idempotent; wrong digest is not.
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_digest
+  );
+  if v_result is not true then raise exception 'exact consume retry was not idempotent'; end if;
+
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_wrong_digest
+  );
+  if v_result is not false then raise exception 'wrong digest was accepted'; end if;
+end $$;
+
+-- Browser roles must not be able to read or execute privileged data/functions.
+do $$
+begin
+  if has_table_privilege('anon', 'public.mls_devices', 'select')
+     or has_table_privilege('authenticated', 'public.mls_devices', 'select')
+     or has_table_privilege('anon', 'public.mls_membership_authorizations', 'insert')
+     or has_table_privilege('authenticated', 'public.mls_membership_authorizations', 'insert') then
+    raise exception 'browser role has unexpected MLS table privileges';
+  end if;
+  if has_function_privilege(
+    'authenticated',
+    'public.mls_consume_membership_authorization(uuid,uuid,uuid,bytea)',
+    'execute'
+  ) then
+    raise exception 'authenticated can execute privileged consume function';
+  end if;
+  if not has_function_privilege(
+    'service_role',
+    'public.mls_consume_membership_authorization(uuid,uuid,uuid,bytea)',
+    'execute'
+  ) then
+    raise exception 'service_role cannot execute consume function';
+  end if;
+end $$;
+
+select 'MLS control-plane migration smoke tests passed' as result;
