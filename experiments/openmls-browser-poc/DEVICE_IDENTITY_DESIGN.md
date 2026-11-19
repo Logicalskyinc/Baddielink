@@ -22,7 +22,7 @@ The duplicate-identity removal guard is necessary, but it does not solve this id
    - MLS signing public key;
    - registration status and relevant validity/revocation metadata.
 5. MLS KeyPackages and credentials must be validated against that binding before they are accepted into a group. Merely trusting caller-supplied metadata or a BasicCredential string is insufficient.
-6. The exact OpenMLS credential type and validation mechanism remain to be selected and implemented. A server-signed device certificate/custom credential validation path must be evaluated against the pinned OpenMLS release before coding.
+6. OpenMLS documentation currently describes `BasicCredential` as its only supported credential type. Do not infer usable X.509 support from the presence of a `CredentialType::X509` enum variant. The MLS Authentication Service is outside the protocol/library and must be implemented by the application. The candidate path is an opaque device identifier in `BasicCredential` plus a separately signed registration binding, subject to validation-hook verification against the exact pinned release.
 
 ## Separate operations
 
@@ -50,6 +50,19 @@ The duplicate-identity removal guard is necessary, but it does not solve this id
 - Validate the registration binding before issuing/accepting a KeyPackage.
 - Join at the current group epoch through an authorized invitation/Welcome flow.
 - Do not provide historical group messages or old epoch secrets by default. Any history-sharing feature would require a separate explicit, audited design.
+
+## OpenMLS validation constraint
+
+The OpenMLS Book states that `BasicCredential` is currently the only supported credential type. RFC 9420 also places credential-to-client authentication in the Authentication Service, which is an application responsibility. Do not assume that an X.509 enum variant means OpenMLS 0.9.2 provides a usable X.509 credential implementation or validation pipeline.
+
+Before implementing device registration, inspect the exact pinned OpenMLS source and identify where the application can validate:
+
+- A KeyPackage before an Add proposal/commit is accepted.
+- Credentials in a ratchet tree when joining from Welcome.
+- Add and Update proposals while processing a staged Commit, before merging the Commit.
+- Credential changes and revocation status after initial admission.
+
+The current prototype worker's direct `Group.join` and `process_message` calls do not demonstrate these authentication checks. Do not treat a valid MLS signature or opaque BasicCredential as proof that the account/device registration is authorized. The credential-validation interception points and fail-closed behavior are a prerequisite to the two-device implementation.
 
 ## Required browser integration tests
 
