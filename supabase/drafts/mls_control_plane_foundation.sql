@@ -413,7 +413,8 @@ alter table public.mls_space_groups
   add constraint mls_space_groups_pending_authorization_fk
   foreign key (pending_authorization_id)
   references public.mls_membership_authorizations(id)
-  on delete set null;
+  on delete no action
+  deferrable initially deferred;
 
 -- Server-owned tables are inaccessible to browser roles. The service role is
 -- used only from authenticated server code after JWT validation.
