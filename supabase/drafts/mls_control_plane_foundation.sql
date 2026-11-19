@@ -592,6 +592,14 @@ begin
       and v_pending_authorization_id = p_authorization_id;
   end if;
 
+  -- Serialize authorization against concurrent device revocation. Lock both
+  -- registered device rows in UUID order to avoid cross-room lock inversion.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for share;
+
   select true
     into v_actor_can_manage
     from public.space_memberships sm
@@ -815,6 +823,14 @@ begin
      or v_pending_authorization_id <> p_authorization_id then
     return false;
   end if;
+
+  -- Hold the same deterministic device locks through finalization so a
+  -- concurrent revocation cannot invalidate the authorization mid-commit.
+  perform 1
+    from public.mls_devices d
+   where d.id in (v_actor_device_id, v_target_device_id)
+   order by d.id
+   for share;
 
   select (d.status = 'active' and d.revoked_at is null)
     into v_actor_device_active
