@@ -85,6 +85,7 @@ create table public.mls_space_groups (
   space_id uuid primary key references public.spaces(id) on delete cascade,
   group_id uuid not null default gen_random_uuid() unique,
   roster_version bigint not null default 1 check (roster_version > 0),
+  pending_authorization_id uuid,
   created_at timestamptz not null default clock_timestamp(),
   updated_at timestamptz not null default clock_timestamp(),
   constraint mls_space_groups_space_group_unique unique (space_id, group_id)
@@ -92,6 +93,35 @@ create table public.mls_space_groups (
 
 comment on table public.mls_space_groups is
   'Server-owned one-to-one mapping from a BaddieLink space to an opaque MLS group and monotonic roster version.';
+
+-- Server-maintained projection of devices admitted to each MLS group.
+-- This is deliberately credential-bound and contains no MLS leaf indexes:
+-- leaf indexes are tree-local and must be resolved from the authenticated MLS
+-- state by the worker for each staged Commit.
+create table public.mls_space_device_roster (
+  space_id uuid not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  device_id uuid not null,
+  credential_id bytea not null check (octet_length(credential_id) = 32),
+  signature_public_key bytea not null check (octet_length(signature_public_key) = 32),
+  joined_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp(),
+  primary key (space_id, device_id),
+  unique (space_id, credential_id),
+  constraint mls_space_device_roster_group_fk
+    foreign key (space_id) references public.mls_space_groups(space_id)
+    on delete cascade,
+  constraint mls_space_device_roster_device_fk
+    foreign key (device_id, user_id)
+    references public.mls_devices(id, user_id)
+    on delete restrict
+);
+
+create index mls_space_device_roster_user_idx
+  on public.mls_space_device_roster (space_id, user_id);
+
+comment on table public.mls_space_device_roster is
+  'Server-maintained MLS admission projection keyed by registered device and credential hash; never stores tree-local leaf indexes.';
 
 -- Backfill one opaque group mapping for every existing room. Memberships
 -- remain in public.space_memberships; this table does not duplicate them.
@@ -145,6 +175,7 @@ create table public.mls_membership_authorizations (
   created_at timestamptz not null default clock_timestamp(),
   expires_at timestamptz not null,
   consumed_at timestamptz,
+  applied_at timestamptz,
   constraint mls_authorization_expiry_check check (
     expires_at > created_at
     and expires_at <= created_at + interval '2 minutes'
@@ -200,7 +231,16 @@ begin
 
   if old.consumed_at is not null
      or new.consumed_at is null then
-    raise exception 'MLS authorization consumption is a one-way transition';
+    if new.consumed_at is distinct from old.consumed_at then
+      raise exception 'MLS authorization consumption is a one-way transition';
+    end if;
+  end if;
+
+  if old.applied_at is not null
+     or (new.applied_at is not null and new.consumed_at is null) then
+    if new.applied_at is distinct from old.applied_at then
+      raise exception 'MLS authorization application is a one-way transition';
+    end if;
   end if;
 
   return new;
@@ -218,18 +258,27 @@ revoke all on function private.mls_protect_authorization_immutability()
 comment on table public.mls_membership_authorizations is
   'Short-lived, exact-Commit, single-use MLS membership authorization ledger. Signed assertions are produced by the server, not trusted from this row alone.';
 
+alter table public.mls_space_groups
+  add constraint mls_space_groups_pending_authorization_fk
+  foreign key (pending_authorization_id)
+  references public.mls_membership_authorizations(id)
+  on delete restrict;
+
 -- Server-owned tables are inaccessible to browser roles. The service role is
 -- used only from authenticated server code after JWT validation.
 alter table public.mls_devices enable row level security;
 alter table public.mls_space_groups enable row level security;
+alter table public.mls_space_device_roster enable row level security;
 alter table public.mls_membership_authorizations enable row level security;
 
 revoke all on public.mls_devices from public, anon, authenticated;
 revoke all on public.mls_space_groups from public, anon, authenticated;
+revoke all on public.mls_space_device_roster from public, anon, authenticated;
 revoke all on public.mls_membership_authorizations from public, anon, authenticated;
 
 grant select, insert, update on public.mls_devices to service_role;
 grant select on public.mls_space_groups to service_role;
+grant select on public.mls_space_device_roster to service_role;
 grant select, insert on public.mls_membership_authorizations to service_role;
 
 -- Roster version updates are performed by triggers, not client-callable RPCs.
@@ -344,6 +393,10 @@ declare
   v_expires_at timestamptz;
   v_consumed_at timestamptz;
   v_current_roster_version bigint;
+  v_pending_authorization_id uuid;
+  v_space_active boolean;
+  v_actor_can_manage boolean;
+  v_target_is_in_roster boolean;
   v_device_active boolean;
   v_target_device_active boolean;
 begin
@@ -381,14 +434,33 @@ begin
     return true;
   end if;
 
-  select g.roster_version
-    into v_current_roster_version
+  select g.roster_version, g.pending_authorization_id,
+         (s.status = 'active')
+    into v_current_roster_version, v_pending_authorization_id, v_space_active
     from public.mls_space_groups g
+    join public.spaces s on s.id = g.space_id
    where g.space_id = v_space_id
      and g.group_id = v_group_id
-   for update;
+   for update of g;
 
-  if not found or v_current_roster_version <> v_roster_version then
+  if not found
+     or not coalesce(v_space_active, false)
+     or v_current_roster_version <> v_roster_version
+     or (v_pending_authorization_id is not null
+         and v_pending_authorization_id <> p_authorization_id) then
+    return false;
+  end if;
+
+  select exists (
+    select 1
+      from public.space_memberships sm
+     where sm.space_id = v_space_id
+       and sm.user_id = v_actor_user_id
+       and sm.status = 'active'
+       and sm.role in ('owner', 'moderator')
+  ) into v_actor_can_manage;
+
+  if not coalesce(v_actor_can_manage, false) then
     return false;
   end if;
 
@@ -406,7 +478,21 @@ begin
   -- Add/update targets must still be active and retain the exact immutable
   -- credential/key binding at consume time. A removal may target a revoked
   -- device because revocation must not prevent removing it from a room.
-  if v_operation in ('add', 'update') then
+  select exists (
+    select 1
+      from public.mls_space_device_roster r
+     where r.space_id = v_space_id
+       and r.user_id = v_target_user_id
+       and r.device_id = v_target_device_id
+       and r.credential_id = v_target_credential_id
+       and r.signature_public_key = v_target_signature_public_key
+  ) into v_target_is_in_roster;
+
+  if v_operation = 'add' then
+    if coalesce(v_target_is_in_roster, false) then
+      return false;
+    end if;
+
     select (
       d.status = 'active'
       and d.revoked_at is null
@@ -421,12 +507,44 @@ begin
     if not found or not coalesce(v_target_device_active, false) then
       return false;
     end if;
+  elsif v_operation in ('update', 'remove') then
+    if not coalesce(v_target_is_in_roster, false) then
+      return false;
+    end if;
+
+    if v_operation = 'update' then
+      select (
+        d.status = 'active'
+        and d.revoked_at is null
+        and d.credential_id = v_target_credential_id
+        and d.signature_public_key = v_target_signature_public_key
+      )
+        into v_target_device_active
+        from public.mls_devices d
+       where d.id = v_target_device_id
+         and d.user_id = v_target_user_id;
+
+      if not found or not coalesce(v_target_device_active, false) then
+        return false;
+      end if;
+    end if;
   end if;
 
   update public.mls_membership_authorizations
      set consumed_at = clock_timestamp()
    where id = p_authorization_id
      and consumed_at is null;
+
+  if not found then
+    return false;
+  end if;
+
+  update public.mls_space_groups
+     set pending_authorization_id = p_authorization_id
+   where space_id = v_space_id
+     and group_id = v_group_id
+     and roster_version = v_roster_version
+     and pending_authorization_id is null;
 
   return found;
 end;
@@ -435,6 +553,142 @@ $function$;
 revoke all on function public.mls_consume_membership_authorization(uuid, uuid, uuid, bytea)
   from public, anon, authenticated;
 grant execute on function public.mls_consume_membership_authorization(uuid, uuid, uuid, bytea)
+  to service_role;
+
+-- Finalization is a separate transaction after the worker has merged and
+-- durably journaled the exact authorized Commit. The pending group lock blocks
+-- another membership authorization until this projection is advanced.
+create or replace function public.mls_finalize_membership_authorization(
+  p_authorization_id uuid,
+  p_actor_user_id uuid,
+  p_actor_device_id uuid,
+  p_commit_digest bytea
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_space_id uuid;
+  v_group_id uuid;
+  v_roster_version bigint;
+  v_actor_user_id uuid;
+  v_actor_device_id uuid;
+  v_operation text;
+  v_target_user_id uuid;
+  v_target_device_id uuid;
+  v_target_credential_id bytea;
+  v_target_signature_public_key bytea;
+  v_commit_digest bytea;
+  v_consumed_at timestamptz;
+  v_applied_at timestamptz;
+  v_pending_authorization_id uuid;
+  v_current_roster_version bigint;
+begin
+  if p_authorization_id is null
+     or p_actor_user_id is null
+     or p_actor_device_id is null
+     or p_commit_digest is null
+     or octet_length(p_commit_digest) <> 32 then
+    return false;
+  end if;
+
+  select a.space_id, a.group_id, a.roster_version,
+         a.actor_user_id, a.actor_device_id, a.operation,
+         a.target_user_id, a.target_device_id, a.target_credential_id,
+         a.target_signature_public_key, a.commit_digest,
+         a.consumed_at, a.applied_at
+    into v_space_id, v_group_id, v_roster_version,
+         v_actor_user_id, v_actor_device_id, v_operation,
+         v_target_user_id, v_target_device_id, v_target_credential_id,
+         v_target_signature_public_key, v_commit_digest,
+         v_consumed_at, v_applied_at
+    from public.mls_membership_authorizations a
+   where a.id = p_authorization_id
+   for update;
+
+  if not found
+     or v_actor_user_id <> p_actor_user_id
+     or v_actor_device_id <> p_actor_device_id
+     or v_commit_digest <> p_commit_digest
+     or v_consumed_at is null then
+    return false;
+  end if;
+
+  if v_applied_at is not null then
+    return true;
+  end if;
+
+  select g.roster_version, g.pending_authorization_id
+    into v_current_roster_version, v_pending_authorization_id
+    from public.mls_space_groups g
+   where g.space_id = v_space_id
+     and g.group_id = v_group_id
+   for update;
+
+  if not found
+     or v_current_roster_version <> v_roster_version
+     or v_pending_authorization_id <> p_authorization_id then
+    return false;
+  end if;
+
+  if v_operation = 'add' then
+    insert into public.mls_space_device_roster (
+      space_id, user_id, device_id, credential_id, signature_public_key
+    ) values (
+      v_space_id, v_target_user_id, v_target_device_id,
+      v_target_credential_id, v_target_signature_public_key
+    );
+  elsif v_operation = 'update' then
+    update public.mls_space_device_roster
+       set credential_id = v_target_credential_id,
+           signature_public_key = v_target_signature_public_key,
+           updated_at = clock_timestamp()
+     where space_id = v_space_id
+       and user_id = v_target_user_id
+       and device_id = v_target_device_id;
+
+    if not found then
+      return false;
+    end if;
+  elsif v_operation = 'remove' then
+    delete from public.mls_space_device_roster
+     where space_id = v_space_id
+       and user_id = v_target_user_id
+       and device_id = v_target_device_id;
+
+    if not found then
+      return false;
+    end if;
+  else
+    return false;
+  end if;
+
+  update public.mls_space_groups
+     set roster_version = roster_version + 1,
+         pending_authorization_id = null,
+         updated_at = clock_timestamp()
+   where space_id = v_space_id
+     and group_id = v_group_id
+     and pending_authorization_id = p_authorization_id;
+
+  if not found then
+    raise exception 'MLS roster finalization lost its pending authorization lock';
+  end if;
+
+  update public.mls_membership_authorizations
+     set applied_at = clock_timestamp()
+   where id = p_authorization_id
+     and applied_at is null;
+
+  return found;
+end;
+$function$;
+
+revoke all on function public.mls_finalize_membership_authorization(uuid, uuid, uuid, bytea)
+  from public, anon, authenticated;
+grant execute on function public.mls_finalize_membership_authorization(uuid, uuid, uuid, bytea)
   to service_role;
 
 commit;
