@@ -253,6 +253,32 @@ pub fn verify_device_attestation(
     })
 }
 
+
+/// Verify an attestation using only trust anchors compiled into this artifact.
+///
+/// Unlike the lower-level verifier used by isolated unit fixtures, this entry
+/// point does not accept a caller-provided issuer list. It is the only
+/// verification entry point intended for future admission integration.
+pub(crate) fn verify_with_build_trust(
+    envelope: &[u8],
+    expected_audience: &str,
+    expected_credential_id: &[u8],
+    expected_signature_key: &[u8],
+    expected_roster_version: u64,
+    now_unix_secs: u64,
+) -> Result<DeviceAttestationClaims, String> {
+    let trusted_issuers = crate::trusted_issuers::configured_issuers();
+    verify_device_attestation(
+        envelope,
+        &trusted_issuers,
+        expected_audience,
+        expected_credential_id,
+        expected_signature_key,
+        expected_roster_version,
+        now_unix_secs,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,10 +367,8 @@ mod tests {
         let device_key = vec![5; 32];
         let (envelope, _fixture_issuers, _) =
             fixture("active", "baddielink-test", &credential, &device_key);
-        let configured = crate::trusted_issuers::configured_issuers();
-        let result = verify_device_attestation(
+        let result = verify_with_build_trust(
             &envelope,
-            &configured,
             "baddielink-test",
             &credential,
             &device_key,
