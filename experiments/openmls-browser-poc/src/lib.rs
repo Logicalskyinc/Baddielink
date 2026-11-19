@@ -411,6 +411,32 @@ impl Group {
         Ok(changes.into())
     }
 
+    /// Merge a staged Commit only when it contains no membership changes.
+    /// This keeps ordinary epoch/application commits working in production
+    /// while failing closed on Add, Update, and Remove until an authenticated
+    /// BaddieLink device/roster authorization service is connected.
+    pub fn merge_staged_commit_if_no_membership_change(
+        &mut self,
+        provider: &mut Provider,
+    ) -> Result<bool, JsError> {
+        let Some(staged) = self.pending_staged_commit.as_ref() else {
+            return Ok(false);
+        };
+        if !staged.add_proposals().is_empty()
+            || !staged.update_proposals().is_empty()
+            || !staged.remove_proposals().is_empty()
+        {
+            return Err(JsError::new(
+                "MLS membership Commit requires authenticated device authorization.",
+            ));
+        }
+        let staged = self.pending_staged_commit.take().expect("staged Commit checked above");
+        self.mls_group
+            .merge_staged_commit(provider.as_mut(), staged)
+            .map_err(|e| JsError::new(&format!("merge_staged_commit failed: {e}")))?;
+        Ok(true)
+    }
+
     /// Test-harness-only escape hatch to exercise MLS membership and restart
     /// flows. This is deliberately absent from default/production WASM builds:
     /// it does not perform BaddieLink device authorization.
