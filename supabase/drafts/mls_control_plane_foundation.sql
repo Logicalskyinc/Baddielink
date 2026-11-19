@@ -603,6 +603,9 @@ declare
   v_applied_at timestamptz;
   v_pending_authorization_id uuid;
   v_current_roster_version bigint;
+  v_space_active boolean;
+  v_actor_owner_active boolean;
+  v_target_member_active boolean;
   v_actor_device_active boolean;
   v_target_device_active boolean;
 begin
@@ -640,14 +643,16 @@ begin
     return true;
   end if;
 
-  select g.roster_version, g.pending_authorization_id
-    into v_current_roster_version, v_pending_authorization_id
+  select g.roster_version, g.pending_authorization_id, (s.status = 'active')
+    into v_current_roster_version, v_pending_authorization_id, v_space_active
     from public.mls_space_groups g
+    join public.spaces s on s.id = g.space_id
    where g.space_id = v_space_id
      and g.group_id = v_group_id
-   for update;
+   for update of g;
 
   if not found
+     or not coalesce(v_space_active, false)
      or v_current_roster_version <> v_roster_version
      or v_pending_authorization_id <> p_authorization_id then
     return false;
@@ -663,7 +668,31 @@ begin
     return false;
   end if;
 
+  select exists (
+    select 1
+      from public.space_memberships sm
+     where sm.space_id = v_space_id
+       and sm.user_id = v_actor_user_id
+       and sm.status = 'active'
+       and sm.role = 'owner'
+  ) into v_actor_owner_active;
+
+  if not coalesce(v_actor_owner_active, false) then
+    return false;
+  end if;
+
   if v_operation in ('add', 'update') then
+    select exists (
+      select 1
+        from public.space_memberships sm
+       where sm.space_id = v_space_id
+         and sm.user_id = v_target_user_id
+         and sm.status = 'active'
+    ) into v_target_member_active;
+
+    if not coalesce(v_target_member_active, false) then
+      return false;
+    end if;
     select (
       d.status = 'active'
       and d.revoked_at is null
