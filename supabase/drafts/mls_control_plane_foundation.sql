@@ -286,7 +286,10 @@ grant select on public.mls_space_groups to service_role;
 grant select on public.mls_space_device_roster to service_role;
 grant select, insert on public.mls_membership_authorizations to service_role;
 
--- Roster version updates are performed by triggers, not client-callable RPCs.
+-- MLS roster version changes only when the server finalizes a device-level MLS
+-- membership Commit, or when room status changes. Account membership and role
+-- are checked directly at consume/finalize time; unrelated account joins/leaves
+-- must not invalidate a different device-level Commit.
 create or replace function private.mls_bump_space_roster_version(p_space_id uuid)
 returns void
 language plpgsql
@@ -305,42 +308,6 @@ begin
   end if;
 end;
 $function$;
-
-create or replace function private.mls_track_membership_roster_change()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-declare
-  v_space_id uuid;
-begin
-  if tg_op = 'INSERT' then
-    v_space_id := new.space_id;
-  elsif tg_op = 'DELETE' then
-    v_space_id := old.space_id;
-  else
-    if new.role is not distinct from old.role
-       and new.status is not distinct from old.status then
-      return new;
-    end if;
-    v_space_id := new.space_id;
-  end if;
-
-  perform private.mls_bump_space_roster_version(v_space_id);
-
-  if tg_op = 'DELETE' then
-    return old;
-  end if;
-  return new;
-end;
-$function$;
-
-create trigger space_memberships_mls_roster_version
-after insert or delete or update of role, status
-on public.space_memberships
-for each row
-execute function private.mls_track_membership_roster_change();
 
 create or replace function private.mls_track_space_status_change()
 returns trigger
@@ -362,8 +329,6 @@ for each row
 execute function private.mls_track_space_status_change();
 
 revoke all on function private.mls_bump_space_roster_version(uuid)
-  from public, anon, authenticated;
-revoke all on function private.mls_track_membership_roster_change()
   from public, anon, authenticated;
 revoke all on function private.mls_track_space_status_change()
   from public, anon, authenticated;
