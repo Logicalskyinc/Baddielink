@@ -14,6 +14,8 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 ### Access control
 - As `anon` and `authenticated`, verify SELECT/INSERT/UPDATE/DELETE are denied on all three MLS control-plane tables.
 - Verify `authenticated` cannot execute the consume function.
+- Verify anon/authenticated have no SELECT, INSERT, UPDATE, or DELETE privilege on any MLS control-plane table.
+- Verify service_role has only the explicitly required table privileges and cannot directly delete authorization rows or mutate the room/roster projection.
 - Verify `service_role` can execute the consume function.
 - Verify trigger functions cannot be called as RPCs by browser roles.
 - Verify no new RLS policy accidentally grants client access.
@@ -45,6 +47,7 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Verify exact same actor/device/digest retry is idempotent.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
+- Verify deleting a pending authorization cannot clear its room reservation; deleting an entire room and its dependent records remains atomic.
 - Verify target device belongs to target account through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
 
