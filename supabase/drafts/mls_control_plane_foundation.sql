@@ -114,7 +114,7 @@ create table public.mls_space_device_roster (
   constraint mls_space_device_roster_device_fk
     foreign key (device_id, user_id)
     references public.mls_devices(id, user_id)
-    on delete restrict
+    on delete cascade
 );
 
 create index mls_space_device_roster_user_idx
@@ -187,11 +187,11 @@ create table public.mls_membership_authorizations (
   constraint mls_authorization_actor_device_fk
     foreign key (actor_device_id, actor_user_id)
     references public.mls_devices (id, user_id)
-    on delete restrict,
+    on delete cascade,
   constraint mls_authorization_target_device_fk
     foreign key (target_device_id, target_user_id)
     references public.mls_devices (id, user_id)
-    on delete restrict
+    on delete cascade
 );
 
 create index mls_authorizations_space_expiry_idx
