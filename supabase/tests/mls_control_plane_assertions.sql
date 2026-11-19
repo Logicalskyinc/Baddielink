@@ -387,9 +387,24 @@ begin
      or has_table_privilege('authenticated', 'public.mls_devices', 'select')
      or has_table_privilege('anon', 'public.mls_space_device_roster', 'select')
      or has_table_privilege('authenticated', 'public.mls_space_device_roster', 'select')
+     or has_table_privilege('service_role', 'public.mls_space_device_roster', 'insert')
      or has_table_privilege('anon', 'public.mls_membership_authorizations', 'insert')
      or has_table_privilege('authenticated', 'public.mls_membership_authorizations', 'insert') then
     raise exception 'browser role has unexpected MLS table privileges';
+  end if;
+  if has_function_privilege(
+    'authenticated',
+    'public.mls_bootstrap_space_device(uuid,uuid,uuid,bytea,bytea)',
+    'execute'
+  ) then
+    raise exception 'authenticated can execute privileged bootstrap function';
+  end if;
+  if not has_function_privilege(
+    'service_role',
+    'public.mls_bootstrap_space_device(uuid,uuid,uuid,bytea,bytea)',
+    'execute'
+  ) then
+    raise exception 'service_role cannot execute bootstrap function';
   end if;
   if has_function_privilege(
     'authenticated',
