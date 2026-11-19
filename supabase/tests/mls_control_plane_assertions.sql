@@ -10,6 +10,7 @@ declare
   v_auth_id uuid;
   v_auth_id_2 uuid;
   v_auth_id_competing uuid;
+  v_auth_id_remove uuid;
   v_digest bytea := decode(repeat('ab', 32), 'hex');
   v_wrong_digest bytea := decode(repeat('cd', 32), 'hex');
   v_result boolean;
@@ -219,6 +220,50 @@ begin
     v_wrong_digest
   );
   if v_result is not false then raise exception 'wrong digest was accepted'; end if;
+
+  -- Remove is resolved against the server's credential-bound room roster.
+  select roster_version into v_version
+    from public.mls_space_groups
+   where space_id = '20000000-0000-4000-8000-000000000001';
+
+  insert into public.mls_membership_authorizations (
+    space_id, group_id, actor_user_id, actor_device_id, operation,
+    target_user_id, target_device_id, target_credential_id,
+    target_signature_public_key, roster_version, commit_digest, expires_at
+  )
+  select
+    g.space_id, g.group_id,
+    '10000000-0000-4000-8000-000000000001', v_actor_device, 'remove',
+    '10000000-0000-4000-8000-000000000003', v_target_device,
+    decode(repeat('22',32),'hex'), decode(repeat('32',32),'hex'),
+    g.roster_version, v_wrong_digest, clock_timestamp() + interval '90 seconds'
+  from public.mls_space_groups g
+  where g.space_id = '20000000-0000-4000-8000-000000000001'
+  returning id into v_auth_id_remove;
+
+  v_result := public.mls_consume_membership_authorization(
+    v_auth_id_remove,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_wrong_digest
+  );
+  if v_result is not true then raise exception 'valid Remove authorization consume failed'; end if;
+
+  v_result := public.mls_finalize_membership_authorization(
+    v_auth_id_remove,
+    '10000000-0000-4000-8000-000000000001',
+    v_actor_device,
+    v_wrong_digest
+  );
+  if v_result is not true then raise exception 'valid Remove authorization finalization failed'; end if;
+
+  if exists (
+    select 1 from public.mls_space_device_roster
+     where space_id = '20000000-0000-4000-8000-000000000001'
+       and device_id = v_target_device
+  ) then
+    raise exception 'Remove finalization left the target device in the MLS roster';
+  end if;
 
   -- A target device revoked after authorization issuance must not be added.
   insert into public.mls_devices
