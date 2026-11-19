@@ -57,7 +57,7 @@ The COSE_Sign1 payload is a deterministic-CBOR map with this version-1 claim set
 | `rv` | unsigned integer | Monotonically increasing account/device roster or revocation version. |
 | `jti` | byte string | Unique random attestation identifier to prevent accidental token reuse and support audit/revocation. |
 
-No email, phone number, display name, or raw account ID may appear in the BasicCredential identity or attestation payload.
+The BasicCredential identity must be a cryptographically random 32-byte opaque device credential, not a username, email, phone number, display name, or raw account ID. The server roster and `cred` attestation claim store SHA-256 of those exact identity bytes; the raw identity is not used as a database key.
 
 The `sub` value must not be a globally stable public account identifier. Prefer a server-generated pseudonym scoped to the MLS service audience. If later requirements demand unlinkability between different private rooms, move to group-scoped pseudonyms and attestations; that requires a separate versioned design because it changes account-to-device roster resolution.
 
@@ -91,7 +91,7 @@ Every verifier must:
 4. Decode deterministic CBOR and validate all required fields, types, lengths, version, issuer, and audience.
 5. Require `iat <= now < exp`, with a small explicitly configured clock-skew allowance. Reject excessive token lifetime and require the assertion to have been issued within the previous five minutes for membership admission.
 6. Require `status == active`.
-7. Compare `cred` byte-for-byte with the BasicCredential identity.
+7. Compare `cred` byte-for-byte with SHA-256 of the exact BasicCredential identity bytes extracted from the validated MLS object.
 8. Compare `sig` byte-for-byte with the exact KeyPackage or LeafNode signature public key.
 9. Check `rv` and device status against a sufficiently fresh authenticated roster/revocation source. A valid signature over an expired or revoked device is not authorization.
 10. Reject unknown, duplicate, mismatched, revoked, or ambiguous account/device/credential bindings. Fail closed when the status source is unavailable or too stale for the operation.
