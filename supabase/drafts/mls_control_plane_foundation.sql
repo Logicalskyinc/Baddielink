@@ -70,6 +70,15 @@ begin
     ) then
       raise exception 'MLS device has a consumed membership authorization that must be finalized or reconciled before revocation';
     end if;
+
+    if exists (
+      select 1
+        from public.mls_space_device_roster r
+       where r.device_id = old.id
+    ) then
+      raise exception 'MLS device must be removed from every room before revocation';
+    end if;
+
     new.revoked_at := clock_timestamp();
   elsif new.status = 'active' then
     new.revoked_at := null;
@@ -207,7 +216,8 @@ begin
     into v_device_active
     from public.mls_devices d
    where d.id = p_device_id
-     and d.user_id = p_user_id;
+     and d.user_id = p_user_id
+   for share;
 
   if not found or not coalesce(v_device_active, false) then
     raise exception 'Bootstrap device is not registered with this exact active credential/key binding';
@@ -588,7 +598,8 @@ begin
     into v_device_active
     from public.mls_devices d
    where d.id = v_actor_device_id
-     and d.user_id = v_actor_user_id;
+     and d.user_id = v_actor_user_id
+   for share;
 
   if not found or not coalesce(v_device_active, false)
      or v_expires_at <= clock_timestamp() then
@@ -636,7 +647,8 @@ begin
       into v_target_device_active
       from public.mls_devices d
      where d.id = v_target_device_id
-       and d.user_id = v_target_user_id;
+       and d.user_id = v_target_user_id
+     for share;
 
     if not found or not coalesce(v_target_device_active, false) then
       return false;
@@ -794,7 +806,8 @@ begin
     into v_actor_device_active
     from public.mls_devices d
    where d.id = v_actor_device_id
-     and d.user_id = v_actor_user_id;
+     and d.user_id = v_actor_user_id
+   for share;
 
   if not found or not coalesce(v_actor_device_active, false) then
     return false;
@@ -834,7 +847,8 @@ begin
       into v_target_device_active
       from public.mls_devices d
      where d.id = v_target_device_id
-       and d.user_id = v_target_user_id;
+       and d.user_id = v_target_user_id
+     for share;
 
     if not found or not coalesce(v_target_device_active, false) then
       return false;
