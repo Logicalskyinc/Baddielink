@@ -336,6 +336,34 @@ mod tests {
     }
 
     #[test]
+    fn build_configured_trust_store_controls_test_issuer_acceptance() {
+        let credential = vec![4; 32];
+        let device_key = vec![5; 32];
+        let (envelope, _fixture_issuers, _) =
+            fixture("active", "baddielink-test", &credential, &device_key);
+        let configured = crate::trusted_issuers::configured_issuers();
+        let result = verify_device_attestation(
+            &envelope,
+            &configured,
+            "baddielink-test",
+            &credential,
+            &device_key,
+            7,
+            1_800_000_100,
+        );
+
+        #[cfg(feature = "attestation-test-issuer")]
+        assert!(result.is_ok(), "explicit test build should pin its test issuer");
+
+        #[cfg(not(feature = "attestation-test-issuer"))]
+        assert_eq!(
+            result.unwrap_err(),
+            "Unknown attestation issuer key identifier.",
+            "default build must not trust the test issuer"
+        );
+    }
+
+    #[test]
     fn rejects_tampered_signature() {
         let credential = vec![4; 32];
         let device_key = vec![5; 32];
