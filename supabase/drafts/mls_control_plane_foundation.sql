@@ -243,18 +243,15 @@ begin
     returning mls_space_groups.roster_version into v_roster_version;
 
   else
-    select (
-      count(*) = 1
-      and bool_and(
-        r.user_id = p_user_id
-        and r.device_id = p_device_id
-        and r.credential_id = p_credential_id
-        and r.signature_public_key = p_signature_public_key
-      )
-    )
-      into v_exact_bootstrap_exists
-      from public.mls_space_device_roster r
-     where r.space_id = p_space_id;
+    select exists (
+      select 1
+        from public.mls_space_device_roster r
+       where r.space_id = p_space_id
+         and r.user_id = p_user_id
+         and r.device_id = p_device_id
+         and r.credential_id = p_credential_id
+         and r.signature_public_key = p_signature_public_key
+    ) into v_exact_bootstrap_exists;
 
     if not coalesce(v_exact_bootstrap_exists, false) then
       raise exception 'MLS room bootstrap already belongs to a different device roster';
