@@ -1,6 +1,12 @@
 name: E2EE OpenMLS validation
 
 on:
+  push:
+    branches: [feat/e2ee-browser-validation]
+    paths:
+      - "experiments/openmls-browser-poc/**"
+      - ".github/workflows/e2ee-openmls-validation.yml"
+      - "docs/E2EE_IMPLEMENTATION_PLAN.md"
   pull_request:
     branches: [main]
     paths:
