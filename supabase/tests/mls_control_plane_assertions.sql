@@ -308,6 +308,8 @@ do $$
 begin
   if has_table_privilege('anon', 'public.mls_devices', 'select')
      or has_table_privilege('authenticated', 'public.mls_devices', 'select')
+     or has_table_privilege('anon', 'public.mls_space_device_roster', 'select')
+     or has_table_privilege('authenticated', 'public.mls_space_device_roster', 'select')
      or has_table_privilege('anon', 'public.mls_membership_authorizations', 'insert')
      or has_table_privilege('authenticated', 'public.mls_membership_authorizations', 'insert') then
     raise exception 'browser role has unexpected MLS table privileges';
@@ -325,6 +327,20 @@ begin
     'execute'
   ) then
     raise exception 'service_role cannot execute consume function';
+  end if;
+  if has_function_privilege(
+    'authenticated',
+    'public.mls_finalize_membership_authorization(uuid,uuid,uuid,bytea)',
+    'execute'
+  ) then
+    raise exception 'authenticated can execute privileged finalize function';
+  end if;
+  if not has_function_privilege(
+    'service_role',
+    'public.mls_finalize_membership_authorization(uuid,uuid,uuid,bytea)',
+    'execute'
+  ) then
+    raise exception 'service_role cannot execute finalize function';
   end if;
 end $$;
 
