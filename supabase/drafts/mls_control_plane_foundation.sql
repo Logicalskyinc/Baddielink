@@ -139,6 +139,127 @@ create index mls_space_device_roster_user_idx
 comment on table public.mls_space_device_roster is
   'Server-maintained MLS admission projection keyed by registered device and credential hash; never stores tree-local leaf indexes.';
 
+-- First-device bootstrap for a newly created MLS room. The Edge Function must
+-- authenticate the Supabase session and derive p_user_id from the verified JWT;
+-- the browser cannot call this function or choose the room's MLS group ID.
+-- An exact retry is idempotent. A different first device is rejected.
+create or replace function public.mls_bootstrap_space_device(
+  p_space_id uuid,
+  p_user_id uuid,
+  p_device_id uuid,
+  p_credential_id bytea,
+  p_signature_public_key bytea
+)
+returns table (group_id uuid, roster_version bigint)
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_group_id uuid;
+  v_roster_version bigint;
+  v_owner_id uuid;
+  v_space_active boolean;
+  v_device_active boolean;
+  v_roster_count bigint;
+  v_exact_bootstrap_exists boolean;
+begin
+  if p_space_id is null
+     or p_user_id is null
+     or p_device_id is null
+     or p_credential_id is null
+     or octet_length(p_credential_id) <> 32
+     or p_signature_public_key is null
+     or octet_length(p_signature_public_key) <> 32 then
+    raise exception 'Invalid MLS bootstrap binding';
+  end if;
+
+  select g.group_id, g.roster_version, s.owner_id, (s.status = 'active')
+    into v_group_id, v_roster_version, v_owner_id, v_space_active
+    from public.mls_space_groups g
+    join public.spaces s on s.id = g.space_id
+   where g.space_id = p_space_id
+   for update of g;
+
+  if not found
+     or not coalesce(v_space_active, false)
+     or v_owner_id <> p_user_id then
+    raise exception 'Only the active room owner can bootstrap its first MLS device';
+  end if;
+
+  if not exists (
+    select 1
+      from public.space_memberships sm
+     where sm.space_id = p_space_id
+       and sm.user_id = p_user_id
+       and sm.role = 'owner'
+       and sm.status = 'active'
+  ) then
+    raise exception 'Room owner membership is not active';
+  end if;
+
+  select (
+    d.status = 'active'
+    and d.revoked_at is null
+    and d.credential_id = p_credential_id
+    and d.signature_public_key = p_signature_public_key
+  )
+    into v_device_active
+    from public.mls_devices d
+   where d.id = p_device_id
+     and d.user_id = p_user_id;
+
+  if not found or not coalesce(v_device_active, false) then
+    raise exception 'Bootstrap device is not registered with this exact active credential/key binding';
+  end if;
+
+  select count(*)
+    into v_roster_count
+    from public.mls_space_device_roster r
+   where r.space_id = p_space_id;
+
+  if v_roster_count = 0 then
+    insert into public.mls_space_device_roster (
+      space_id, user_id, device_id, credential_id, signature_public_key
+    ) values (
+      p_space_id, p_user_id, p_device_id, p_credential_id, p_signature_public_key
+    );
+
+    update public.mls_space_groups
+       set roster_version = roster_version + 1,
+           updated_at = clock_timestamp()
+     where space_id = p_space_id
+       and group_id = v_group_id
+    returning mls_space_groups.roster_version into v_roster_version;
+
+  else
+    select (
+      count(*) = 1
+      and bool_and(
+        r.user_id = p_user_id
+        and r.device_id = p_device_id
+        and r.credential_id = p_credential_id
+        and r.signature_public_key = p_signature_public_key
+      )
+    )
+      into v_exact_bootstrap_exists
+      from public.mls_space_device_roster r
+     where r.space_id = p_space_id;
+
+    if not coalesce(v_exact_bootstrap_exists, false) then
+      raise exception 'MLS room bootstrap already belongs to a different device roster';
+    end if;
+  end if;
+
+  return query select v_group_id, v_roster_version;
+end;
+$function$;
+
+revoke all on function public.mls_bootstrap_space_device(uuid, uuid, uuid, bytea, bytea)
+  from public, anon, authenticated;
+grant execute on function public.mls_bootstrap_space_device(uuid, uuid, uuid, bytea, bytea)
+  to service_role;
+
 -- Backfill one opaque group mapping for every existing room. Memberships
 -- remain in public.space_memberships; this table does not duplicate them.
 insert into public.mls_space_groups (space_id)
