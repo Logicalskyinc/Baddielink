@@ -268,7 +268,7 @@ mod tests {
 
     fn signed_fixture(aad: &[u8]) -> (Vec<u8>, Vec<RoomAuthorizationIssuerKey>) {
         let signing_key = SigningKey::from_bytes((&[11u8; 32]).into()).expect("test issuer key");
-        let public_key = signing_key.verifying_key().to_encoded_point(false).as_bytes().to_vec();
+        let public_key = signing_key.verifying_key().to_sec1_point(false).as_bytes().to_vec();
         let key_id = b"room-auth-test-key".to_vec();
         let mut value = valid_claims();
         if let Value::Map(entries) = &mut value {
