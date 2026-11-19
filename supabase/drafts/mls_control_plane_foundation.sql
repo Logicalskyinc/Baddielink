@@ -508,6 +508,7 @@ declare
   v_space_owner_id uuid;
   v_owner_device_count bigint;
   v_actor_can_manage boolean;
+  v_target_member_active boolean;
   v_actor_is_in_roster boolean;
   v_target_is_in_roster boolean;
   v_device_active boolean;
@@ -571,16 +572,16 @@ begin
     return v_pending_authorization_id = p_authorization_id;
   end if;
 
-  select exists (
-    select 1
-      from public.space_memberships sm
-     where sm.space_id = v_space_id
-       and sm.user_id = v_actor_user_id
-       and sm.status = 'active'
-       and sm.role = 'owner'
-  ) into v_actor_can_manage;
+  select true
+    into v_actor_can_manage
+    from public.space_memberships sm
+   where sm.space_id = v_space_id
+     and sm.user_id = v_actor_user_id
+     and sm.status = 'active'
+     and sm.role = 'owner'
+   for share;
 
-  if not coalesce(v_actor_can_manage, false) then
+  if not found or not coalesce(v_actor_can_manage, false) then
     return false;
   end if;
 
@@ -624,13 +625,15 @@ begin
   if v_operation in ('add', 'update') then
     -- Device admission/update cannot bypass the ordinary BaddieLink
     -- account-level room-membership gate.
-    if not exists (
-      select 1
-        from public.space_memberships sm
-       where sm.space_id = v_space_id
-         and sm.user_id = v_target_user_id
-         and sm.status = 'active'
-    ) then
+    select true
+      into v_target_member_active
+      from public.space_memberships sm
+     where sm.space_id = v_space_id
+       and sm.user_id = v_target_user_id
+       and sm.status = 'active'
+     for share;
+
+    if not found or not coalesce(v_target_member_active, false) then
       return false;
     end if;
   end if;
@@ -815,29 +818,29 @@ begin
     return false;
   end if;
 
-  select exists (
-    select 1
-      from public.space_memberships sm
-     where sm.space_id = v_space_id
-       and sm.user_id = v_actor_user_id
-       and sm.status = 'active'
-       and sm.role = 'owner'
-  ) into v_actor_owner_active;
+  select true
+    into v_actor_owner_active
+    from public.space_memberships sm
+   where sm.space_id = v_space_id
+     and sm.user_id = v_actor_user_id
+     and sm.status = 'active'
+     and sm.role = 'owner'
+   for share;
 
-  if not coalesce(v_actor_owner_active, false) then
+  if not found or not coalesce(v_actor_owner_active, false) then
     return false;
   end if;
 
   if v_operation in ('add', 'update') then
-    select exists (
-      select 1
-        from public.space_memberships sm
-       where sm.space_id = v_space_id
-         and sm.user_id = v_target_user_id
-         and sm.status = 'active'
-    ) into v_target_member_active;
+    select true
+      into v_target_member_active
+      from public.space_memberships sm
+     where sm.space_id = v_space_id
+       and sm.user_id = v_target_user_id
+       and sm.status = 'active'
+     for share;
 
-    if not coalesce(v_target_member_active, false) then
+    if not found or not coalesce(v_target_member_active, false) then
       return false;
     end if;
     select (
