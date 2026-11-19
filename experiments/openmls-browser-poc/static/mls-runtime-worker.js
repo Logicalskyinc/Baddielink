@@ -454,6 +454,14 @@ async function receiveMessage(data) {
   // The explicit browser-test build has a test-only merge escape hatch so the
   // integration suite can continue exercising Welcome and membership flows.
   const stagedChanges = candidateGroup.pending_commit_add_update_bindings();
+  if (stagedChanges.length > 1) {
+    // The current server authorization record binds exactly one target and
+    // operation to a Commit digest. Reject compound membership Commits until
+    // a versioned batch-authorization contract is implemented.
+    throw new Error(
+      "MLS membership Commit rejected: multiple membership proposals require batch authorization."
+    );
+  }
   if (stagedChanges.length > 0) {
     // Membership-changing Commits are accepted only in the isolated browser
     // test build. Production artifacts intentionally omit this escape hatch
