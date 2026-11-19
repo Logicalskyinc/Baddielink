@@ -340,6 +340,16 @@ async function persistCandidate(
   return committedGeneration;
 }
 
+function requireBrowserTestMembershipAdmission(action) {
+  if (!identity ||
+      typeof identity.browser_test_admission_enabled !== "function" ||
+      identity.browser_test_admission_enabled() !== true) {
+    throw new Error(
+      `${action} is disabled: authenticated device registration and roster authorization are not configured.`
+    );
+  }
+}
+
 async function createKeyPackage(data) {
   if (!ready) throw new Error("MLS runtime is not initialized.");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
@@ -357,6 +367,7 @@ async function createKeyPackage(data) {
 
 async function addMember(data) {
   if (!ready || !identity) throw new Error("MLS runtime is not initialized.");
+  requireBrowserTestMembershipAdmission("Adding a member");
   if (!data.keyPackage) throw new Error("KeyPackage bytes are required.");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
   const candidateIdentity = Identity.restore(
@@ -386,6 +397,7 @@ async function removeMember(data) {
   if (!ready || !identity || !group) {
     throw new Error("MLS runtime is not initialized or has not joined a group.");
   }
+  requireBrowserTestMembershipAdmission("Removing a member");
   if (typeof data.memberIdentity !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(data.memberIdentity)) {
     throw new Error("A valid MLS member identity is required.");
   }
@@ -406,6 +418,7 @@ async function removeMember(data) {
 
 async function joinGroup(data) {
   if (!ready || !identity) throw new Error("MLS runtime is not initialized.");
+  requireBrowserTestMembershipAdmission("Joining a group");
   if (group) throw new Error("This device is already joined to a group.");
   const nextGroupId = validateIdentifier(data.groupId, "group identifier");
   const candidateProvider = Provider.from_snapshot_bytes(provider.export_snapshot_bytes());
