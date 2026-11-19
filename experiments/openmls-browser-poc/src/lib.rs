@@ -222,6 +222,7 @@ impl Group {
     }
     pub fn join(
         provider: &Provider,
+        local_identity: &Identity,
         mut welcome: &[u8],
         ratchet_tree: RatchetTree,
     ) -> Result<Group, JsError> {
@@ -232,10 +233,26 @@ impl Group {
             ))),
         }?;
         let config = MlsGroupJoinConfig::builder().build();
-        let mls_group =
-            StagedWelcome::new_from_welcome(provider, &config, welcome, Some(ratchet_tree.0))?
-                .into_group(provider)?;
+        let staged_welcome =
+            StagedWelcome::new_from_welcome(provider, &config, welcome, Some(ratchet_tree.0))?;
 
+        // A cryptographically valid Welcome can still target a different local
+        // device. Bind the staged own leaf to this worker's restored identity
+        // before OpenMLS creates or persists the joined group.
+        let own_leaf = staged_welcome
+            .own_leaf_node()
+            .ok_or_else(|| JsError::new("Welcome does not contain the joining device's own leaf."))?;
+        if own_leaf.credential().serialized_content()
+            != local_identity.credential_with_key.credential.serialized_content()
+            || own_leaf.signature_key().as_slice()
+                != local_identity.keypair.public()
+        {
+            return Err(JsError::new(
+                "Welcome own-leaf credential or signature key does not match this local device.",
+            ));
+        }
+
+        let mls_group = staged_welcome.into_group(provider)?;
         Ok(Group { mls_group })
     }
 
