@@ -27,7 +27,10 @@ create table public.mls_devices (
     (status = 'active' and revoked_at is null)
     or (status = 'revoked' and revoked_at is not null)
   ),
-  constraint mls_devices_id_user_unique unique (id, user_id)
+  constraint mls_devices_id_user_unique unique (id, user_id),
+  constraint mls_devices_exact_binding_unique
+    unique (id, user_id, credential_id, signature_public_key),
+  constraint mls_devices_signature_key_unique unique (signature_public_key)
 );
 
 create unique index mls_devices_one_active_device_id
@@ -112,8 +115,8 @@ create table public.mls_space_device_roster (
     foreign key (space_id) references public.mls_space_groups(space_id)
     on delete cascade,
   constraint mls_space_device_roster_device_fk
-    foreign key (device_id, user_id)
-    references public.mls_devices(id, user_id)
+    foreign key (device_id, user_id, credential_id, signature_public_key)
+    references public.mls_devices(id, user_id, credential_id, signature_public_key)
     on delete cascade
 );
 
@@ -163,7 +166,7 @@ create table public.mls_membership_authorizations (
   group_id uuid not null,
   actor_user_id uuid not null,
   actor_device_id uuid not null,
-  operation text not null check (operation in ('add', 'update', 'remove')),
+  operation text not null check (operation in ('add', 'remove')),
   target_user_id uuid not null,
   target_device_id uuid not null,
   target_credential_id bytea not null
@@ -189,8 +192,13 @@ create table public.mls_membership_authorizations (
     references public.mls_devices (id, user_id)
     on delete cascade,
   constraint mls_authorization_target_device_fk
-    foreign key (target_device_id, target_user_id)
-    references public.mls_devices (id, user_id)
+    foreign key (
+      target_device_id, target_user_id,
+      target_credential_id, target_signature_public_key
+    )
+    references public.mls_devices (
+      id, user_id, credential_id, signature_public_key
+    )
     on delete cascade
 );
 
@@ -440,19 +448,29 @@ begin
      and g.group_id = v_group_id
    for update of g;
 
-  if not found
-     or not coalesce(v_space_active, false)
+  if not found then
+    return false;
+  end if;
+
+  -- Finalized authorizations remain idempotent even though finalization has
+  -- advanced the room roster version and cleared the pending reservation.
+  -- The actor, device, authorization ID, and exact Commit digest were matched
+  -- above before this branch can return success.
+  if v_consumed_at is not null then
+    if v_applied_at is not null then
+      return true;
+    end if;
+
+    return coalesce(v_space_active, false)
+      and v_current_roster_version = v_roster_version
+      and v_pending_authorization_id = p_authorization_id;
+  end if;
+
+  if not coalesce(v_space_active, false)
      or v_current_roster_version <> v_roster_version
      or (v_pending_authorization_id is not null
          and v_pending_authorization_id <> p_authorization_id) then
     return false;
-  end if;
-
-  -- A consumed retry is valid only while its reservation still owns this
-  -- room, or after the exact authorization has already been finalized.
-  if v_consumed_at is not null then
-    return v_pending_authorization_id = p_authorization_id
-      or v_applied_at is not null;
   end if;
 
   select exists (
@@ -534,27 +552,12 @@ begin
     if not found or not coalesce(v_target_device_active, false) then
       return false;
     end if;
-  elsif v_operation in ('update', 'remove') then
+  elsif v_operation = 'remove' then
     if not coalesce(v_target_is_in_roster, false) then
       return false;
     end if;
-
-    if v_operation = 'update' then
-      select (
-        d.status = 'active'
-        and d.revoked_at is null
-        and d.credential_id = v_target_credential_id
-        and d.signature_public_key = v_target_signature_public_key
-      )
-        into v_target_device_active
-        from public.mls_devices d
-       where d.id = v_target_device_id
-         and d.user_id = v_target_user_id;
-
-      if not found or not coalesce(v_target_device_active, false) then
-        return false;
-      end if;
-    end if;
+  else
+    return false;
   end if;
 
   update public.mls_space_groups
@@ -676,7 +679,7 @@ begin
     return false;
   end if;
 
-  if v_operation in ('add', 'update') then
+  if v_operation = 'add' then
     select (
       d.status = 'active'
       and d.revoked_at is null
@@ -700,18 +703,6 @@ begin
       v_space_id, v_target_user_id, v_target_device_id,
       v_target_credential_id, v_target_signature_public_key
     );
-  elsif v_operation = 'update' then
-    update public.mls_space_device_roster
-       set credential_id = v_target_credential_id,
-           signature_public_key = v_target_signature_public_key,
-           updated_at = clock_timestamp()
-     where space_id = v_space_id
-       and user_id = v_target_user_id
-       and device_id = v_target_device_id;
-
-    if not found then
-      return false;
-    end if;
   elsif v_operation = 'remove' then
     delete from public.mls_space_device_roster
      where space_id = v_space_id
