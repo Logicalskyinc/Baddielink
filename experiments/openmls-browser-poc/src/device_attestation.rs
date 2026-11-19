@@ -245,7 +245,7 @@ mod tests {
 
     fn fixture(status: &str, audience: &str, credential: &[u8], device_key: &[u8]) -> (Vec<u8>, Vec<TrustedIssuerKey>, Vec<u8>) {
         let signing_key = SigningKey::from_bytes((&[9u8; 32]).into()).expect("issuer signing key");
-        let public_key = signing_key.verifying_key().to_encoded_point(false).as_bytes().to_vec();
+        let public_key = signing_key.verifying_key().to_sec1_point(false).as_bytes().to_vec();
         let key_id = b"test-issuer-key-1".to_vec();
         let envelope = CoseSign1Builder::new()
             .protected(HeaderBuilder::new()
@@ -289,7 +289,7 @@ mod tests {
         let last = envelope.len() - 1;
         envelope[last] ^= 1;
         assert!(verify_device_attestation(
-            &envelope, &issuers, "baddielink-test", &credential, &device_key, 1_800_000_100,
+            &envelope, &issuers, "baddielink-test", &credential, &device_key, 7, 1_800_000_100,
         ).is_err());
     }
 
