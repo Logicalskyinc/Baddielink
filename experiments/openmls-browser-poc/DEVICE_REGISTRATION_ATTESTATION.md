@@ -25,6 +25,19 @@ Why ES256 for the issuer: Web Crypto has broad browser support for P-256 ECDSA v
 
 This profile is a prototype choice, not a claim that an issuer key or signing service already exists. Before implementation, verify exact COSE library behavior and Web Crypto signature encoding in the pinned Chromium CI environment and supported Safari versions. Do not implement COSE by hand.
 
+
+## 2.1 Scope and privacy boundary for this prototype
+
+The v1 assertion profile in this document is the selected prototype profile. It is service-audience scoped, not group-bound: the payload does not contain an MLS GroupId. Its `sub` claim is an opaque account subject scoped to the BaddieLink MLS service audience, and `rv` is the authenticated account/device registration-roster version. It is not an MLS epoch, room membership version, or proof that the subject is authorized to join every room.
+
+Consequences:
+- The assertion can establish that a particular credential and signing key are registered to an account/device under this issuer's authority.
+- A separate authenticated room-authorization decision is still required before adding that device to a particular group.
+- A service-scoped subject and stable device identifier may be correlatable across groups. This prototype does not claim cross-room unlinkability.
+- Group-scoped pseudonyms/assertions would require a new protocol version and corresponding issuer, roster, and verifier changes. Do not silently reinterpret v1 claims to provide this property.
+
+The legacy `DEVICE_REGISTRATION_ASSERTION_V1.md` EdDSA/integer-key proposal is superseded and must not be used to issue assertions.
+
 ## 3. Attestation payload
 
 The COSE_Sign1 payload is a deterministic-CBOR map with this version-1 claim set:
@@ -152,6 +165,9 @@ All authorization failures are fail-closed:
 The current branch has implemented the following pieces:
 
 - A COSE_Sign1 ES256 verifier with a caller-supplied trusted-issuer list at the Rust-module level.
+
+- A build-pinned verification entry point, `verify_with_build_trust`, now resolves trust anchors internally and does not accept a caller-provided issuer list. It is not yet wired into the worker or exported to JavaScript.
+- The previous EdDSA/integer-key assertion proposal has been marked superseded. The selected prototype format is ES256 with the 12 named claims documented above.
 - Strict version-1 payload claim-set validation: exactly the 12 required claims, text claim names only, and no duplicate or unknown claims.
 - OpenMLS KeyPackage deserialization with trailing-byte rejection.
 - Extraction of the BasicCredential identity and signature public key from the same parsed KeyPackage object.
