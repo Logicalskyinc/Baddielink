@@ -21,14 +21,12 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Verify no new RLS policy accidentally grants client access.
 
 ### Roster version
-- Insert a membership and verify exactly one increment.
-- Delete a membership and verify exactly one increment.
-- Change role and verify exactly one increment.
-- Change status and verify exactly one increment.
-- Update unrelated membership fields and verify no increment.
+- Bootstrap the first admitted device and verify exactly one increment; an exact retry must not increment again.
+- Finalize each Add, Update, and Remove operation and verify exactly one increment.
 - Suspend/archive/restore a space and verify each status transition increments once.
-- Run concurrent membership changes and verify no increments are lost.
-- Verify a failed membership transaction rolls back the roster version increment.
+- Verify account membership insert/delete, role/status changes, and unrelated profile fields do not increment the MLS device-roster version; authorization must re-check the relevant account membership and role at consume/finalize time.
+- Run concurrent room-status and MLS finalization changes and verify no increments are lost.
+- Verify a failed membership transaction rolls back its roster version increment and reservation changes.
 
 ### Device registry
 - Reject malformed device IDs, credential IDs, and public keys.
@@ -50,6 +48,7 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Verify deleting a pending authorization cannot clear its room reservation; deleting an entire room and its dependent records remains atomic.
 - Verify target device belongs to target account through the composite foreign key.
 - Verify authorization rows are removed when their owning room is deleted.
+- Verify direct deletion of a pending authorization cannot clear its room reservation.
 
 ## Follow-up implementation not included in this migration
 
