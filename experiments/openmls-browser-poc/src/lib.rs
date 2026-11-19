@@ -1,4 +1,5 @@
 mod opfs_bridge;
+mod device_attestation;
 mod candidate_operations;
 mod utils;
 
