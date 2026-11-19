@@ -166,9 +166,17 @@ These pieces are **not yet connected into an admission authorization decision**.
 - The verifier's current trusted-issuer argument is not an acceptable browser-facing configuration interface. A caller must never be allowed to supply the keys that establish its own trust.
 - Therefore, a KeyPackage accepted by the current experimental `add-member` path is **not proven to belong to an authorized BaddieLink account/device**.
 
-Do not treat the current path as production-safe or enable it for real private-group admission. The next implementation gate is to introduce an internal, build-controlled trust-store interface that cannot be overridden by page messages, keep the production trust store empty until an issuer is established, and then enforce attestation plus fresh roster authorization before any MLS membership mutation or persistence. Browser test issuer material must remain isolated to a dedicated test build and must never be present in production WASM assets.
+Do not treat the current path as production-safe or enable it for real private-group admission. The next implementation gate is to connect the internal trust store to an authoritative registration/roster service and enforce attestation plus fresh roster authorization before any MLS membership mutation or persistence. The browser worker still does not enforce this gate.
 
-## 12. Explicit non-goals and current state
+
+
+### 12.1 Build-controlled issuer trust-store foundation
+
+The branch now has an internal `trusted_issuers` module. It is not exported through wasm-bindgen and accepts no page/worker message configuration. The default Cargo build returns an empty issuer list, so a valid signature from the test fixture is rejected as an unknown issuer. The isolated `attestation-test-issuer` Cargo feature pins the deterministic test issuer public key for explicitly opted-in test artifacts only; it must never be enabled for production WASM.
+
+A native test exercises both build configurations: default builds reject the test issuer, while builds compiled with `--features attestation-test-issuer` recognize that exact issuer. This is a trust-store foundation only. It does not create a production issuer, does not authenticate a roster, and is not yet called by the browser worker's `add-member` path. The feature is a build-time control, not a cryptographic guarantee against a maintainer intentionally shipping a test-feature artifact, so release automation must explicitly build without it and later add an artifact audit.
+
+## 13. Explicit non-goals and current state
 
 This specification does not create a production registration service, issuer key store, trust-store distribution mechanism, revocation API, Supabase schema, or Render service. It does not implement a production OpenMLS StorageProvider or resolve same-origin XSS risk. The dedicated worker remains an execution-isolation mechanism, not a security boundary against malicious same-origin JavaScript.
 
