@@ -47,7 +47,7 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 - [x] Require exactly one membership proposal per Commit until batch authorization is designed.
 - [x] Worker staged proposal inspection now emits SHA-256 credential hashes for Add/Update/Remove and resolves Remove to the current MLS member's credential/key binding.
 - [x] Worker rejects compound membership Commits while the authorization record remains single-target.
-- [x] Draft repository-only SQL source (kept outside migrations until CLI generation and validation): `supabase/drafts/mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, roster version triggers, immutable one-time authorization ledger, and atomic consume primitive).
+- [x] Draft repository-only SQL source (kept outside migrations until CLI generation and validation): `supabase/drafts/mls_control_plane_foundation.sql` (device registry, server-created space/group mapping, credential-bound per-room device projection, roster version triggers, one-target authorization ledger, room reservation, and post-persistence finalization primitive).
 - [ ] Validate the SQL draft against a disposable PostgreSQL/Supabase database. The repository now includes a PostgreSQL CI workflow and fixtures covering room mapping, roster version changes, account membership gating, device admission/removal, pending reservation concurrency, exact retry, digest mismatch, revocation, finalization, and grants. CI has not yet been confirmed green.
 - [ ] Implement authenticated Edge Functions for device registration, authorization issuance, consume, and finalize.
 - [ ] Connect the worker to the authenticated consume/finalize endpoints and complete the rejection matrix.
