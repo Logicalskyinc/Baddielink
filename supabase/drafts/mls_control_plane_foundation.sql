@@ -145,6 +145,9 @@ create table public.mls_space_device_roster (
 create index mls_space_device_roster_user_idx
   on public.mls_space_device_roster (space_id, user_id);
 
+create index mls_space_device_roster_device_idx
+  on public.mls_space_device_roster (device_id);
+
 comment on table public.mls_space_device_roster is
   'Server-maintained MLS admission projection keyed by registered device and credential hash; never stores tree-local leaf indexes.';
 
@@ -347,6 +350,10 @@ create index mls_authorizations_actor_device_idx
 create index mls_authorizations_unconsumed_expiry_idx
   on public.mls_membership_authorizations (expires_at)
   where consumed_at is null;
+
+create index mls_authorizations_pending_device_idx
+  on public.mls_membership_authorizations (actor_device_id, target_device_id)
+  where consumed_at is not null and applied_at is null;
 
 -- Authorization contents are immutable after issuance. The only allowed
 -- update is the one-way transition consumed_at: NULL -> timestamp.
