@@ -335,11 +335,17 @@ declare
   v_roster_version bigint;
   v_actor_user_id uuid;
   v_actor_device_id uuid;
+  v_target_user_id uuid;
+  v_target_device_id uuid;
+  v_target_credential_id bytea;
+  v_target_signature_public_key bytea;
+  v_operation text;
   v_commit_digest bytea;
   v_expires_at timestamptz;
   v_consumed_at timestamptz;
   v_current_roster_version bigint;
   v_device_active boolean;
+  v_target_device_active boolean;
 begin
   if p_authorization_id is null
      or p_actor_user_id is null
@@ -350,11 +356,15 @@ begin
   end if;
 
   select a.space_id, a.group_id, a.roster_version,
-         a.actor_user_id, a.actor_device_id, a.commit_digest,
-         a.expires_at, a.consumed_at
+         a.actor_user_id, a.actor_device_id,
+         a.target_user_id, a.target_device_id,
+         a.target_credential_id, a.target_signature_public_key,
+         a.operation, a.commit_digest, a.expires_at, a.consumed_at
     into v_space_id, v_group_id, v_roster_version,
-         v_actor_user_id, v_actor_device_id, v_commit_digest,
-         v_expires_at, v_consumed_at
+         v_actor_user_id, v_actor_device_id,
+         v_target_user_id, v_target_device_id,
+         v_target_credential_id, v_target_signature_public_key,
+         v_operation, v_commit_digest, v_expires_at, v_consumed_at
     from public.mls_membership_authorizations a
    where a.id = p_authorization_id
    for update;
@@ -391,6 +401,26 @@ begin
   if not found or not coalesce(v_device_active, false)
      or v_expires_at <= clock_timestamp() then
     return false;
+  end if;
+
+  -- Add/update targets must still be active and retain the exact immutable
+  -- credential/key binding at consume time. A removal may target a revoked
+  -- device because revocation must not prevent removing it from a room.
+  if v_operation in ('add', 'update') then
+    select (
+      d.status = 'active'
+      and d.revoked_at is null
+      and d.credential_id = v_target_credential_id
+      and d.signature_public_key = v_target_signature_public_key
+    )
+      into v_target_device_active
+      from public.mls_devices d
+     where d.id = v_target_device_id
+       and d.user_id = v_target_user_id;
+
+    if not found or not coalesce(v_target_device_active, false) then
+      return false;
+    end if;
   end if;
 
   update public.mls_membership_authorizations
