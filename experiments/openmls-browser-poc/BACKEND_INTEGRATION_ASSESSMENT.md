@@ -38,11 +38,12 @@ The live Supabase project currently reports no deployed Edge Functions. No E2EE 
 
 ## Current status
 
-- [x] Read-only Supabase migration inventory: 19 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
+- [x] Read-only Supabase migration inventory: 22 migrations recorded; `default_people_discovery_on` is applied as version `20261119122243`.
 - [x] Read-only schema inspection: `spaces` and `space_memberships` columns, constraints, RLS policies, and triggers checked.
 - [x] Existing room model reused in the design; legacy match messaging left untouched.
 - [x] Existing E2EE authorization contract reviewed.
 - [x] Static review enforced exact device/credential/signature-key bindings, post-finalization consume idempotency, and Add/Remove-only authorizations; device-key `update` is rejected pending a rekey protocol.
+- [x] SQL draft now locks actor/target device rows in deterministic order during consume/finalize to serialize against concurrent revocation; fixture asserts mismatched roster/authorization bindings and unsupported `update` rejection.
 - [x] Define server-maintained credential-bound device roster without persisting unstable MLS leaf indexes.
 - [x] Define two-phase authorization reservation/finalization to prevent concurrent Commits from consuming one roster version.
 - [x] Require exactly one membership proposal per Commit until batch authorization is designed.
