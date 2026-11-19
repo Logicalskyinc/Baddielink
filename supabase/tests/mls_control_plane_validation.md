@@ -1,6 +1,6 @@
 # MLS control-plane migration validation checklist
 
-This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The migration is repository-only and has not been applied to any Supabase project.
+This checklist applies to `supabase/drafts/mls_control_plane_foundation.sql`. It is a repository-only draft and has not been applied to any Supabase project.
 
 ## Required local Supabase tests before approval
 
@@ -31,6 +31,8 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 ### Device registry
 - Reject malformed device IDs, credential IDs, and public keys.
 - Reject duplicate credential IDs.
+- Reject reuse of the same MLS signature public key by another device.
+- Reject a room-roster row whose credential ID or signature public key does not exactly match its registered device.
 - Reject duplicate active device IDs for one account.
 - Permit a new active registration after the prior device registration is revoked, without reactivating the old credential.
 - Verify revoked devices cannot consume authorizations.
@@ -42,7 +44,10 @@ This checklist applies to `20261119150000_mls_control_plane_foundation.sql`. The
 - Reject stale roster version after any membership/room-status change.
 - Reject revoked actor device.
 - Reject second consume with a different actor/device/digest.
-- Verify exact same actor/device/digest retry is idempotent.
+- Verify exact same actor/device/digest retry is idempotent before finalization.
+- Verify exact same actor/device/digest retry remains idempotent after finalization advances the roster version.
+- Verify a retry with a different digest remains rejected after finalization.
+- Verify unsupported `update` authorizations are rejected until a device-rekey protocol is implemented.
 - Race two consume requests for the same authorization; only the exact same authorization tuple may return success.
 - Race a consume against a roster change and verify transaction ordering is deterministic and no stale roster authorization succeeds after the change commits.
 - Verify target device belongs to target account through the composite foreign key.
