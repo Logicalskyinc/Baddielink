@@ -273,17 +273,17 @@ impl Group {
 
     /// Remove a member by its BasicCredential identity and return the serialized Commit.
     /// Resolving the credential inside the current group avoids trusting a caller-supplied
-    /// leaf index that may be stale after prior membership changes.
+    /// leaf index that may be stale after prior membership changes. Duplicate identities
+    /// are rejected so a caller can never accidentally remove an arbitrary matching leaf.
     pub fn remove_member_by_identity(
         &mut self,
         provider: &Provider,
         sender: &Identity,
         member_identity: &str,
     ) -> Result<Vec<u8>, JsError> {
-        let member_index = self.mls_group.members()
-            .find(|member| member.credential.serialized_content() == member_identity.as_bytes())
-            .map(|member| member.index)
-            .ok_or_else(|| JsError::new("Requested MLS member identity was not found."))?;
+        let member_index = self
+            .find_unique_member_index_by_identity(member_identity)
+            .map_err(JsError::new)?;
 
         let (commit, _welcome, _group_info) = self.mls_group.remove_members(
             provider,
@@ -394,6 +394,25 @@ impl Group {
                 println!("export key error: {e}");
                 e.into()
             })
+    }
+}
+
+impl Group {
+    fn find_unique_member_index_by_identity(
+        &self,
+        member_identity: &str,
+    ) -> Result<LeafNodeIndex, &'static str> {
+        let mut matches = self.mls_group.members().filter(|member| {
+            member.credential.serialized_content() == member_identity.as_bytes()
+        });
+        let member_index = matches
+            .next()
+            .map(|member| member.index)
+            .ok_or("Requested MLS member identity was not found.")?;
+        if matches.next().is_some() {
+            return Err("MLS member identity is ambiguous; refusing to remove a member.");
+        }
+        Ok(member_index)
     }
 }
 
@@ -611,6 +630,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(bob_exported_key, alice_exported_key);
+    }
+
+    #[test]
+    fn duplicate_member_identity_is_rejected_for_removal() {
+        let (mut alice_provider, alice, mut alice_group, _bob_provider, _bob, _bob_group) =
+            create_group_alice_and_bob();
+
+        let duplicate_provider = Provider::new();
+        let duplicate_bob = Identity::new(&duplicate_provider, "bob")
+            .map_err(js_error_to_string)
+            .unwrap();
+        let duplicate_key_package = duplicate_bob.key_package(&duplicate_provider).unwrap();
+        alice_group
+            .native_propose_and_commit_add(
+                &alice_provider,
+                &alice,
+                &duplicate_key_package,
+            )
+            .map_err(js_error_to_string)
+            .unwrap();
+        alice_group
+            .merge_pending_commit(&mut alice_provider)
+            .map_err(js_error_to_string)
+            .unwrap();
+
+        let result = alice_group.find_unique_member_index_by_identity("bob");
+        assert!(matches!(
+            result,
+            Err("MLS member identity is ambiguous; refusing to remove a member.")
+        ));
     }
 
     #[test]
