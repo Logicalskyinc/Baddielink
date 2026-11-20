@@ -35,6 +35,20 @@
 - [ ] The member list in Admin Console shows moderation status separately from discoverability.
 - [ ] Existing member privacy choices are preserved by approval actions.
 
+## Reporting and moderation queue
+- [ ] A member can report another member with each allowed reason; the report is created only with status `open`.
+- [ ] A member cannot report themselves or submit a report without a valid target.
+- [ ] A member cannot read another member's reports or the moderation queue.
+- [ ] Duplicate member reports are handled without exposing raw database/backend errors.
+- [ ] A member can report a published event they did not create; event reports start as `pending`.
+- [ ] Duplicate event reports are rejected clearly without exposing raw backend errors.
+- [ ] Admins can read and process only the report queues allowed by their role.
+- [ ] Report decisions outside the permitted set are rejected by the database functions.
+- [ ] Each successful report decision creates an audit-log entry with before/after state.
+- [ ] A moderator cannot change their own account moderation status.
+- [ ] An owner cannot change their own role or demote another owner through moderator management.
+- [ ] A non-admin cannot invoke moderation functions successfully, even if they bypass the UI.
+
 ## Likes and blocked accounts
 - [ ] The authenticated Likes view retains its `#likes-grid` container after sign-in and renders sent and received likes.
 - [ ] A member with no sent or received likes sees a clear empty state.
