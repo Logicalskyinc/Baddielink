@@ -41,6 +41,11 @@
 - [ ] Event reports are created only in the `pending` queue state.
 - [ ] Public open Salons accept eligible members as `active`; approval Salons create `pending` memberships.
 - [ ] Rejoining a removed Salon membership follows the Salon's current join policy.
+- [ ] A member can cancel their own pending join request; the membership becomes `removed` and the member can request access again.
+- [ ] An owner can invite a member with no prior membership.
+- [ ] An owner can re-invite a previously removed member without creating a duplicate membership.
+- [ ] An owner cannot bypass a banned membership by sending another invitation.
+- [ ] Existing active or pending memberships are reported clearly instead of being inserted again.
 - [ ] Non-owners cannot manage another member's Salon membership or elevate their own role.
 - [ ] Direct `anon` and `authenticated` table access to `private.admin_roles` is denied; guarded admin RPCs preserve owner/moderator rules.
 
