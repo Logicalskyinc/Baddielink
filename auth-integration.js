@@ -645,7 +645,10 @@
             report.disabled = true; report.textContent = "Signalé";
             form.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
           } catch (error) {
-            feedback.textContent = error.code === "23505" ? "Ce signalement existe déjà." : (error.message || "Le signalement a échoué.");
+            console.error("BaddieLink member report failed:", error);
+            feedback.textContent = error.code === "23505"
+              ? "Ce signalement existe déjà."
+              : "Impossible d’envoyer le signalement. Vérifiez votre connexion puis réessayez.";
             send.disabled = false;
           }
         });
@@ -957,7 +960,10 @@
                 report.disabled = true; report.textContent = "Signalé";
                 reportForm.querySelectorAll("select,textarea,button").forEach(control => { control.disabled = true; });
               } catch (error) {
-                feedback.textContent = error.code === "23505" ? "Vous avez déjà signalé cet événement." : (error.message || "Le signalement a échoué.");
+                console.error("BaddieLink event report failed:", error);
+                feedback.textContent = error.code === "23505"
+                  ? "Vous avez déjà signalé cet événement."
+                  : "Impossible d’envoyer le signalement. Vérifiez votre connexion puis réessayez.";
                 send.disabled = false;
               }
             });
