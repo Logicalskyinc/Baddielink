@@ -33,7 +33,7 @@
 - [ ] A pending or restricted profile remains excluded from discovery.
 - [ ] Only approved profiles with discoverability enabled appear in People Discovery.
 - [ ] Approved but non-discoverable profiles remain hidden from other members.
-- [ ] Reciprocal likes create exactly one match; concurrent opposite likes are tested with two database sessions in an isolated non-production database.
+- [ ] Reciprocal likes create exactly one match; test concurrent opposite likes with two database sessions at PostgreSQL `READ COMMITTED` in an isolated non-production database, confirming the second trigger sees the first committed like after waiting for the pair lock.
 - [ ] The member list in Admin Console shows moderation status separately from discoverability.
 - [ ] Existing member privacy choices are preserved by approval actions.
 
