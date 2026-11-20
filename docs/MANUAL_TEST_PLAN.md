@@ -1,7 +1,7 @@
 # BaddieLink Manual Test Plan
 
-**Target branch:** `feat/profile-reputation-events`  
-**Status:** Prepared; browser checks are being completed against the Render preview  
+**Target branch:** `scope-1/readiness-closeout`  
+**Status:** Prepared; functional tests remain pending. The Render preview shares production Supabase and is not approved for test writes.  
 **Environment:** Preview and production use the same Supabase project. Preview is not a data-isolated staging environment.
 
 ## Safety rules
@@ -20,10 +20,13 @@
 - [ ] Signup rejects missing fields, passwords shorter than eight characters, DOB under 18 and DOB over 100.
 - [ ] Adult declaration is stored only through `confirm_adult_status`; it is not described as official age or identity verification.
 - [ ] Duplicate signup and incorrect password produce safe user-facing errors.
+- [ ] Newly generated usernames remain within the 3–24 character format and have a collision-resistant suffix.
+- [ ] Run the Auth signup trigger test only in an isolated non-production database; do not create disposable production accounts.
 
 ## Member profile and discovery
 
 - [ ] Member can read and update their own display name, username, city, bio, interests and discoverability.
+- [ ] Reputation rank keys render as Nouveau, Initié, Habitué, Confirmé, Référence and Légende; unknown keys fall back to Nouveau.
 - [ ] Invalid or duplicate usernames are rejected.
 - [ ] A pending or restricted profile remains excluded from discovery.
 - [ ] Only approved profiles with discoverability enabled appear in People Discovery.
