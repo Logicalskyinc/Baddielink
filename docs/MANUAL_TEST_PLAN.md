@@ -31,8 +31,18 @@
 - [ ] A pending or restricted profile remains excluded from discovery.
 - [ ] Only approved profiles with discoverability enabled appear in People Discovery.
 - [ ] Approved but non-discoverable profiles remain hidden from other members.
+- [ ] Reciprocal likes create exactly one match; concurrent opposite likes are tested with two database sessions in an isolated non-production database.
 - [ ] The member list in Admin Console shows moderation status separately from discoverability.
 - [ ] Existing member privacy choices are preserved by approval actions.
+
+## Reports, Salons and database authorization
+
+- [ ] Member reports are created only in the `open` queue state; clients cannot submit pre-closed or actioned reports.
+- [ ] Event reports are created only in the `pending` queue state.
+- [ ] Public open Salons accept eligible members as `active`; approval Salons create `pending` memberships.
+- [ ] Rejoining a removed Salon membership follows the Salon's current join policy.
+- [ ] Non-owners cannot manage another member's Salon membership or elevate their own role.
+- [ ] Direct `anon` and `authenticated` table access to `private.admin_roles` is denied; guarded admin RPCs preserve owner/moderator rules.
 
 ## Profile photos
 
@@ -74,5 +84,5 @@
 - [ ] README and PR description accurately distinguish implemented features from roadmap work.
 - [ ] PR is reviewed and mergeable.
 - [ ] Merge to `main` is verified by commit SHA.
-- [ ] Production Render deploy is triggered only after the merge and verified against the merge SHA.
+- [ ] Production Render deploy is triggered only after the merge, verified against the merge SHA, and explicitly approved by the project owner.
 - [ ] Production smoke tests pass.
