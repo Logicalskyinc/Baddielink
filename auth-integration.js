@@ -413,8 +413,7 @@
     if (discoverStatus) discoverStatus.textContent = "Chargement des membres approuvés…";
     document.querySelector("#view-messages").innerHTML =
       '<div class="empty-state"><span>✉</span><h3>Messagerie en préparation</h3><p>La messagerie réelle sera activée après les tests d’accès et de confidentialité.</p></div>';
-    document.querySelector("#view-likes").innerHTML =
-      '<div class="empty-state"><span>♡</span><h3>Vos coups de cœur</h3><p>Les likes réels seront activés avec la découverte des profils.</p></div>';
+    // Keep the real #likes-grid container in place for loadLikes().
     document.querySelector("#view-wallet").innerHTML =
       '<div class="empty-state"><span>◇</span><h3>BaddieCoins en préparation</h3><p>Aucun solde fictif ni achat n’est affiché. Le portefeuille sera activé après la mise en place du registre sécurisé.</p></div>';
     document.querySelector("#auth-signout").classList.add("hidden");
@@ -422,7 +421,7 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
-    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadPeople(true), loadLikes(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadPeople(true), loadLikes(), loadBlockedMembers(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
     if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
     else location.hash = "espace";
     const sharedEventId = new URLSearchParams(location.search).get("event");
@@ -761,6 +760,10 @@
       if (profilesError) throw profilesError;
       const profileMap = new Map((profiles || []).map(row => [row.id, row]));
       target.replaceChildren();
+      if (!sent?.length && !received?.length) {
+        target.append(peopleNode("div", "empty-state", "Vous n’avez pas encore de likes. Découvrez les profils pour commencer."));
+        return;
+      }
       const addSection = (title, rows, key) => {
         target.append(peopleNode("h3", "people-list-heading", title));
         const found = rows.map(row => profileMap.get(row[key])).filter(Boolean);
@@ -780,6 +783,55 @@
     } catch (error) {
       console.error("BaddieLink likes load failed:", error);
       target.replaceChildren(peopleNode("p", "discover-note", "Impossible de charger vos likes. Réessayez."));
+    }
+  }
+
+  async function loadBlockedMembers() {
+    const target = document.querySelector("#blocked-members-list");
+    if (!target) return;
+    target.replaceChildren(peopleNode("p", "discover-note", "Chargement de vos comptes bloqués…"));
+    try {
+      const { data: blocks, error } = await client.from("blocks")
+        .select("blocked_id,created_at")
+        .eq("blocker_id", currentUserId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      target.replaceChildren();
+      if (!blocks?.length) {
+        target.append(peopleNode("p", "discover-note", "Vous n’avez bloqué aucun compte."));
+        return;
+      }
+      blocks.forEach(block => {
+        const row = peopleNode("div", "setting-row");
+        const identity = peopleNode("div", "");
+        identity.append(
+          peopleNode("strong", "", "Compte " + block.blocked_id.slice(0, 8)),
+          peopleNode("p", "muted", "Bloqué le " + new Date(block.created_at).toLocaleDateString("fr-FR"))
+        );
+        const unblock = peopleNode("button", "button button-outline", "Débloquer");
+        unblock.type = "button";
+        unblock.addEventListener("click", async () => {
+          if (!window.confirm("Débloquer ce compte ? Il pourra de nouveau apparaître dans People Discovery si les autres critères de visibilité sont remplis.")) return;
+          unblock.disabled = true;
+          try {
+            const { error: deleteError } = await client.from("blocks").delete()
+              .eq("blocker_id", currentUserId).eq("blocked_id", block.blocked_id);
+            if (deleteError) throw deleteError;
+            window.BaddieLinkUI?.toast("Compte débloqué.");
+            await Promise.allSettled([loadBlockedMembers(), loadPeople(true), loadLikes()]);
+          } catch (error) {
+            console.error("BaddieLink unblock failed:", error);
+            window.BaddieLinkUI?.toast(error.message || "Impossible de débloquer ce compte.", true);
+            unblock.disabled = false;
+          }
+        });
+        row.append(identity, unblock);
+        target.append(row);
+      });
+    } catch (error) {
+      console.error("BaddieLink blocked accounts load failed:", error);
+      target.replaceChildren(peopleNode("p", "discover-note", "Impossible de charger vos comptes bloqués. Réessayez."));
     }
   }
 
