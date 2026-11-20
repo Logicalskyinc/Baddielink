@@ -7,7 +7,8 @@ BaddieLink is an 18+ social discovery platform for Côte d’Ivoire, built by Lo
 The current web application uses Supabase Auth and the existing Supabase project. The feature branch includes:
 
 - Account signup and login, adult self-declaration, and session restoration.
-- Member profiles, discoverability preferences, approved-member discovery, likes, and reputation display.
+- Member profiles, discoverability preferences, approved-member discovery, likes, and Côte d’Ivoire-localized reputation display.
+- Salons discovery, creation and membership management, including public/private visibility and open/approval join policies. Salon text messaging is not enabled.
 - Profile photo uploads to private Supabase Storage, with moderation status controlling public visibility.
 - Exhibitions: event discovery, event submissions, organizer applications, event interests, and reporting.
 - A separate, server-authorized Admin Console for event, organizer, photo, member, and report moderation.
@@ -19,8 +20,8 @@ The current web application uses Supabase Auth and the existing Supabase project
 This is an actively developed web application, not a completed social network. The following are not implemented as production features yet:
 
 - Rooms/salons, communities, moments/status, and live voice rooms. Their placeholder panels are hidden until functional implementations are ready.
-- Production direct messaging. The current message screen still contains demonstration conversations and must not be used to contact real members.
-- BaddieCoins purchases, wallet transactions, and payments. No real balance or payment processing is enabled.
+- Production direct messaging. The member message screen is an honest preparation state; no demonstration conversations or message composer are exposed.
+- BaddieCoins purchases, wallet transactions, and payments. The wallet is a preparation state; no real balance or payment processing is enabled.
 - Formal identity or age verification. Adult access currently relies on a user declaration and is not an official identity check.
 - End-to-end encrypted messaging. The OpenMLS browser proof of concept is isolated experimental work and is not integrated, compiled, or approved for production use.
 
