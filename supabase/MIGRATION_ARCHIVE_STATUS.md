@@ -1,14 +1,20 @@
 # BaddieLink migration archive status
 
-Last reconciled: 2026-11-19  
+Last reconciled: 2026-11-20  
 Live Supabase project: `blibhehqdrgdoczcacpa`  
-Branch: `chore/archive-applied-migrations-20261119`
+Archive/release-readiness branch: `scope-1/readiness-closeout`
 
 ## Status
 
-The live Supabase project reports 22 applied migrations. All 22 applied SQL statement sets have now been recovered from `supabase_migrations.schema_migrations` and archived in this branch using their live version identifiers.
+The live Supabase project reports **24 applied migrations**. This branch contains SQL files for all 24 applied migrations, named with their exact live migration-history versions.
 
-The recovered SQL is the exact statement content retained by the hosted migration history. For the 16 previously missing migrations, recovered byte lengths and MD5 hashes were checked against the migration recovery inventory. The two Salon migrations were compared with the hosted statement history; the first existing file matched byte-for-byte, and the second was replaced with the exact hosted statement text and corrected live version filename. The four later migrations were also checked against the recorded byte lengths and MD5 hashes where available.
+The first 22 applied migrations were recovered from `supabase_migrations.schema_migrations` and archived on `chore/archive-applied-migrations-20261119`. The archive recovery notes record byte-length and MD5 checks for the recovered statement sets where available, and document the exact hosted statement comparison for the two Salon migrations.
+
+The two subsequent production corrections were applied separately after explicit approval:
+- `20261119194013_harden_private_admin_roles_rls.sql`
+- `20261119220202_harden_reports_and_salon_memberships.sql`
+
+Their archived SQL files on this branch contain the exact SQL submitted for those production migrations. Their original feature-branch filenames used proposed timestamps; the archive copies use the actual live migration-history versions.
 
 This is an archive recovery, not a request to execute or replay these migrations. **Do not run the archived files against the already-migrated production project.**
 
@@ -38,14 +44,18 @@ This is an archive recovery, not a request to execute or replay these migrations
 | 20261119135359 | space_messaging_foundation | `20261119135359_space_messaging_foundation.sql` |
 | 20261119135415 | space_messaging_policy_hardening | `20261119135415_space_messaging_policy_hardening.sql` |
 | 20261119141522 | space_messaging_permission_hardening | `20261119141522_space_messaging_permission_hardening.sql` |
+| 20261119194013 | harden_private_admin_roles_rls | `20261119194013_harden_private_admin_roles_rls.sql` |
+| 20261119220202 | harden_reports_and_salon_memberships | `20261119220202_harden_reports_and_salon_memberships.sql` |
 
-## Unapplied migration kept separate
+## Unapplied historical migration kept separate
 
-`20261117180000_default_people_discovery_on.sql` remains a separate unapplied historical file. It is intentionally not counted among the 22 applied migrations. The equivalent change actually applied to production is recorded as version `20261119122243`.
+`20261117180000_default_people_discovery_on.sql` remains a separate unapplied historical file. It is intentionally not counted among the 24 applied migrations. The equivalent change actually applied to production is recorded as version `20261119122243`.
+
+The two candidate fixes for reciprocal-like concurrency and generated usernames are also **not applied** and are not part of the 24-migration production archive.
 
 ## Safe use
 
-1. Keep this archive branch separate until reviewed.
-2. Never execute these 22 files against the current production project as a batch.
-3. For a new empty environment, validate replay on a disposable Supabase project first, including RLS, grants, triggers, storage policies, publication membership, and function ownership.
+1. Keep this archive/release-readiness branch separate from `main` until Scope 1 review is complete.
+2. Never execute these 24 files against the current production project as a batch.
+3. Before using this as a fresh-environment bootstrap, validate replay against a non-production database with no paid staging commitment, including RLS, grants, triggers, storage policies, publication membership, function ownership and application compatibility.
 4. Keep future migration filenames and version identifiers aligned with the live migration history.
