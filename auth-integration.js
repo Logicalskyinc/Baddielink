@@ -658,6 +658,7 @@
           if (error && error.code !== "23505") throw error;
           peopleRows = peopleRows.filter(row => row.id !== person.id);
           renderPeople();
+          await loadBlockedMembers();
           window.BaddieLinkUI?.toast("Membre bloqué.");
         } catch (error) {
           window.BaddieLinkUI?.toast(error.message || "Impossible de bloquer ce membre.", true);
