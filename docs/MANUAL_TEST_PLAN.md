@@ -35,6 +35,14 @@
 - [ ] The member list in Admin Console shows moderation status separately from discoverability.
 - [ ] Existing member privacy choices are preserved by approval actions.
 
+## Likes and blocked accounts
+- [ ] The authenticated Likes view retains its `#likes-grid` container after sign-in and renders sent and received likes.
+- [ ] A member with no sent or received likes sees a clear empty state.
+- [ ] A member can view only their own blocked-account list.
+- [ ] Blocking a member refreshes the blocked-account list and removes the blocked profile from discovery.
+- [ ] A member can unblock only their own blocked account; discovery refreshes after unblocking.
+- [ ] Profiles hidden by either-direction block policies do not appear in Likes profile details.
+
 ## Reports, Salons and database authorization
 
 - [ ] Member reports are created only in the `open` queue state; clients cannot submit pre-closed or actioned reports.
