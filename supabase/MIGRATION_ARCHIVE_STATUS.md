@@ -49,7 +49,7 @@ This is an archive recovery, not a request to execute or replay these migrations
 
 ## Unapplied historical migration kept separate
 
-`20261117180000_default_people_discovery_on.sql` remains a separate unapplied historical file. It is intentionally not counted among the 24 applied migrations. The equivalent change actually applied to production is recorded as version `20261119122243`.
+`supabase/archive/unapplied/20261117180000_default_people_discovery_on.sql` preserves the older unapplied historical SQL outside the active migration directory. It is intentionally not counted among the 24 applied migrations. The equivalent change actually applied to production is recorded as version `20261119122243`.
 
 The two Scope 1 candidate fixes are staged separately on this branch and are **not applied**:
 - `20261119230000_serialize_mutual_like_matching.sql` adds pair-scoped transaction advisory locking. Static review and PostgreSQL snapshot semantics support the design, but a real two-session concurrency test is still required.
