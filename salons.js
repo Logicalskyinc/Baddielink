@@ -96,6 +96,10 @@
       controls.append(join);
     } else if (own.status === "pending") {
       controls.append(node("span", "salon-status-pill", "Demande en attente"));
+      const cancelRequest = node("button", "button button-outline", "Annuler la demande");
+      cancelRequest.type = "button";
+      cancelRequest.addEventListener("click", () => cancelJoinRequest(space));
+      controls.append(cancelRequest);
     } else if (isMember && !isOwner) {
       const leave = node("button", "button button-outline", "Quitter le salon");
       leave.type = "button";
@@ -304,6 +308,20 @@
     }
   }
 
+  async function cancelJoinRequest(space) {
+    if (!window.confirm("Annuler votre demande pour le salon « " + space.name + " » ?")) return;
+    try {
+      const { error } = await client.from("space_memberships")
+        .update({ status: "removed" }).eq("space_id", space.id).eq("user_id", userId);
+      if (error) throw error;
+      toast("Votre demande a été annulée.");
+      await load();
+    } catch (error) {
+      console.error("Salon join request cancellation failed:", error);
+      toast(error.message || "Impossible d’annuler votre demande.", true);
+    }
+  }
+
   async function updateMembership(spaceId, targetUserId, changes) {
     try {
       const { error } = await client.from("space_memberships").update(changes)
@@ -330,11 +348,29 @@
       if (profileError) throw profileError;
       if (!profile) throw new Error("Aucun membre approuvé trouvé avec ce nom d’utilisateur.");
       if (profile.id === userId) throw new Error("Vous êtes déjà propriétaire de ce salon.");
-      const { error } = await client.from("space_memberships").insert({
-        space_id: space.id, user_id: profile.id, role: "member", status: "active", joined_at: new Date().toISOString()
-      });
-      if (error?.code === "23505") throw new Error("Ce membre possède déjà une adhésion ou une demande.");
-      if (error) throw error;
+      const { data: existing, error: existingError } = await client.from("space_memberships")
+        .select("role,status").eq("space_id", space.id).eq("user_id", profile.id).maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.status === "banned") {
+        throw new Error("Ce membre a été banni de ce salon. Une invitation ne peut pas contourner cette décision.");
+      }
+      if (existing?.status === "active") {
+        throw new Error("Ce membre fait déjà partie de ce salon.");
+      }
+      if (existing?.status === "pending") {
+        throw new Error("Une demande ou invitation est déjà en attente pour ce membre.");
+      }
+      if (existing?.status === "removed") {
+        const { error } = await client.from("space_memberships").update({
+          role: "member", status: "active", joined_at: new Date().toISOString()
+        }).eq("space_id", space.id).eq("user_id", profile.id);
+        if (error) throw error;
+      } else {
+        const { error } = await client.from("space_memberships").insert({
+          space_id: space.id, user_id: profile.id, role: "member", status: "active", joined_at: new Date().toISOString()
+        });
+        if (error) throw error;
+      }
       toast("Membre ajouté au salon.");
       await load();
       await selectSpace(space.id);
