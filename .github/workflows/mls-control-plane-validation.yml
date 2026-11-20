@@ -1,0 +1,66 @@
+# Runs only against a disposable PostgreSQL service; never targets hosted Supabase.
+name: MLS control-plane migration validation
+
+on:
+  push:
+    branches: [feat/e2ee-browser-validation]
+    paths:
+      - "supabase/drafts/mls_control_plane_foundation.sql"
+      - "supabase/tests/mls_control_plane_*.sql"
+      - ".github/workflows/mls-control-plane-validation.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/drafts/mls_control_plane_foundation.sql"
+      - "supabase/tests/mls_control_plane_*.sql"
+      - ".github/workflows/mls-control-plane-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mls-control-plane-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-migration-smoke:
+    name: Apply migration and verify control-plane invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create isolated Supabase-like schema fixture
+        run: psql --set ON_ERROR_STOP=1 --file supabase/tests/mls_control_plane_setup.sql
+
+      - name: Apply MLS control-plane migration to disposable PostgreSQL
+        run: psql --set ON_ERROR_STOP=1 --file supabase/drafts/mls_control_plane_foundation.sql
+
+      - name: Verify roster version, lifecycle, consumption, and grants
+        run: psql --set ON_ERROR_STOP=1 --file supabase/tests/mls_control_plane_assertions.sql
