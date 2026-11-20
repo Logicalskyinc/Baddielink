@@ -26,6 +26,8 @@
 ## Member profile and discovery
 
 - [ ] Member can read and update their own display name, username, city, bio, interests and discoverability.
+- [ ] A member cannot directly insert a profile row or set their own moderation status; the Auth account-record trigger creates the pending profile.
+- [ ] A member cannot update their own moderation status; approval/restriction remains an admin-only operation.
 - [ ] Reputation rank keys render as Nouveau, Initié, Habitué, Confirmé, Référence and Légende; unknown keys fall back to Nouveau.
 - [ ] Invalid or duplicate usernames are rejected.
 - [ ] A pending or restricted profile remains excluded from discovery.
