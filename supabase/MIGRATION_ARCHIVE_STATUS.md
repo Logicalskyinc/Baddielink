@@ -51,7 +51,11 @@ This is an archive recovery, not a request to execute or replay these migrations
 
 `20261117180000_default_people_discovery_on.sql` remains a separate unapplied historical file. It is intentionally not counted among the 24 applied migrations. The equivalent change actually applied to production is recorded as version `20261119122243`.
 
-The two candidate fixes for reciprocal-like concurrency and generated usernames are also **not applied** and are not part of the 24-migration production archive.
+The two Scope 1 candidate fixes are staged separately on this branch and are **not applied**:
+- `20261119230000_serialize_mutual_like_matching.sql` adds pair-scoped transaction advisory locking. Static review and PostgreSQL snapshot semantics support the design, but a real two-session concurrency test is still required.
+- `20261119233000_strengthen_generated_usernames.sql` preserves the existing account-record trigger behavior while using an 8-character normalized base plus a 15-hex-character MD5 suffix (60 bits). A read-only SQL sample check passed the existing 3–24 character username format. It has not been run through a real Auth signup flow.
+
+These candidates are separate from the 24-migration production archive and must not be applied until their remaining tests pass and the user explicitly approves the exact production migration.
 
 ## Safe use
 
