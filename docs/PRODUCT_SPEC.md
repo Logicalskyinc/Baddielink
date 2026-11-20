@@ -96,14 +96,14 @@ BaddieLink includes a 2go-inspired star progression system. Stars represent earn
 
 ### Initial rank ladder
 
-1. **Beginner** — new member; learning the platform.
-2. **Novice** — has started participating constructively.
-3. **Intermediate** — established member with consistent positive participation.
-4. **Advanced** — trusted, active contributor.
-5. **Expert** — recognized contributor and community participant.
-6. **Legend** — exceptional long-term contribution and trust.
+1. **Nouveau** (`beginner`) — new member; discovering the platform.
+2. **Initié** (`novice`) — has started participating constructively.
+3. **Habitué** (`intermediate`) — established member with consistent positive participation.
+4. **Confirmé** (`advanced`) — trusted, active contributor.
+5. **Référence** (`expert`) — recognized contributor and community participant.
+6. **Légende** (`legend`) — exceptional long-term contribution and trust.
 
-The names and ordering are approved. Exact point thresholds, star display and promotion criteria remain to be calibrated before implementation.
+The French display labels are the Côte d'Ivoire-first presentation layer; the existing English database rank keys remain unchanged for compatibility. Exact point thresholds, star display and promotion criteria remain to be calibrated before implementation.
 
 ### Reputation signals
 Positive signals may include:
