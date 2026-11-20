@@ -240,10 +240,13 @@
           card.append(actions); queue.append(card);
         });
       } else if (tab === "member-reports") {
-        const { data, error } = await client.from("reports").select("id,reporter_id,reported_user_id,message_id,reason,details,status,created_at").in("status",["open","reviewing"]).order("created_at",{ascending:true}).limit(50);
+        const { data, error } = await client.from("reports").select("id,reporter_id,reported_user_id,message_id,space_message_id,reason,details,status,created_at").in("status",["open","reviewing"]).order("created_at",{ascending:true}).limit(50);
         if (error) throw error;
         (data || []).forEach(item => {
-          const {card,head}=adminCard("Signalement de membre",item.reason+" · "+(item.reported_user_id ? "Compte "+item.reported_user_id.slice(0,8) : "Message "+String(item.message_id).slice(0,8)),item.details || "Aucun détail fourni.");
+          const targetLabel = item.reported_user_id
+            ? "Compte " + item.reported_user_id.slice(0,8)
+            : "Message " + String(item.message_id || item.space_message_id || item.id).slice(0,8);
+          const {card,head}=adminCard("Signalement de membre",item.reason+" · "+targetLabel,item.details || "Aucun détail fourni.");
           head.append(adminNode("span","admin-status-pill",item.status));
           const actions=adminNode("div","admin-item-actions");
           actions.append(adminButton("En cours","admin_review_member_report",{p_report_id:item.id,p_decision:"reviewing"},true),adminButton("Action prise","admin_review_member_report",{p_report_id:item.id,p_decision:"actioned"},true),adminButton("Clôturer","admin_review_member_report",{p_report_id:item.id,p_decision:"closed"},true));
