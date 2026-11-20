@@ -47,6 +47,7 @@ DO $$
 DECLARE
   function_oid oid := 'private.create_user_records()'::regprocedure;
   function_definition text;
+  trigger_definition text;
 BEGIN
   SELECT pg_get_functiondef(function_oid) INTO function_definition;
 
@@ -54,14 +55,26 @@ BEGIN
     RAISE EXCEPTION 'Account-record trigger must remain SECURITY DEFINER';
   END IF;
 
-  IF (SELECT proconfig FROM pg_proc WHERE oid = function_oid)
-       IS DISTINCT FROM ARRAY['search_path=""']::text[] THEN
+  IF NOT ('search_path=""' = ANY(
+    coalesce((SELECT proconfig FROM pg_proc WHERE oid = function_oid), ARRAY[]::text[])
+  )) THEN
     RAISE EXCEPTION 'Account-record trigger must keep an empty search_path';
   END IF;
 
   IF position('left(safe_name, 13)' IN function_definition) = 0
-     OR position("left(replace(NEW.id::text, '-', ''), 10)" IN function_definition) = 0 THEN
+     OR position('left(replace(NEW.id::text, ''-'', ''''), 10)' IN function_definition) = 0 THEN
     RAISE EXCEPTION 'Generated username must use a 13-character base and 10-character UUID suffix';
+  END IF;
+
+  SELECT pg_get_triggerdef(t.oid)
+  INTO trigger_definition
+  FROM pg_trigger t
+  WHERE t.tgfoid = function_oid
+    AND NOT t.tgisinternal;
+
+  IF trigger_definition IS NULL
+     OR trigger_definition NOT ILIKE '%AFTER INSERT ON auth.users%' THEN
+    RAISE EXCEPTION 'Expected auth.users account creation trigger was not found';
   END IF;
 
   IF NOT EXISTS (
