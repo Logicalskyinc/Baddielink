@@ -513,7 +513,10 @@
         user_id: currentUserId, object_path: path, moderation_status: "pending"
       });
       if (rowError) {
-        await client.storage.from("baddielink-profile-photos").remove([path]);
+        const { error: cleanupError } = await client.storage.from("baddielink-profile-photos").remove([path]);
+        if (cleanupError) {
+          console.error("BaddieLink profile photo cleanup failed after metadata insert error:", cleanupError);
+        }
         throw rowError;
       }
       const preview = document.querySelector("#profile-photo-preview");
