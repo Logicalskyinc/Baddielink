@@ -465,7 +465,7 @@
     const { data, error } = await client.from("reputation_profiles")
       .select("score, rank").eq("user_id", currentUserId).maybeSingle();
     if (error) throw error;
-    const labels = { beginner: "Débutant", novice: "Novice", intermediate: "Intermédiaire", advanced: "Avancé", expert: "Expert", legend: "Légende" };
+    const labels = { beginner: "Nouveau", novice: "Initié", intermediate: "Habitué", advanced: "Confirmé", expert: "Référence", legend: "Légende" };
     const target = document.querySelector("#profile-reputation");
     if (target) target.textContent = "☆☆☆☆☆ · " + (labels[data?.rank] || "Débutant") + " · " + (data?.score ?? 0) + " points";
   }
