@@ -55,6 +55,9 @@
 - [ ] Pending photos are visible only to their owner and authorized moderators.
 - [ ] Only approved photos appear publicly.
 - [ ] Signed photo previews load for authorized moderators.
+- [ ] Authenticated users cannot directly update photo ownership, object paths or moderation status.
+- [ ] If photo metadata insertion fails after storage upload, the client attempts object cleanup and logs a cleanup failure for operator follow-up.
+- [ ] The ten-photo per-user limit is enforced by the database trigger under concurrent submissions.
 
 ## Exhibitions and moderation
 
