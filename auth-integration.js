@@ -585,8 +585,9 @@
       (person.interested_in || []).slice(0, 4).forEach(item => tags.append(peopleNode("span", "people-tag", interestLabel(item))));
       if (!tags.children.length) tags.append(peopleNode("span", "people-tag", "Nouveaux échanges"));
       const reputation = peopleReputation.get(person.id);
+      const reputationLabels = { beginner: "Nouveau", novice: "Initié", intermediate: "Habitué", advanced: "Confirmé", expert: "Référence", legend: "Légende" };
       const reputationLine = peopleNode("p", "people-reputation", reputation
-        ? (reputation.rank || "beginner") + " · " + reputation.score + " points"
+        ? (reputationLabels[reputation.rank] || "Nouveau") + " · " + reputation.score + " points"
         : "Nouveau membre");
       const actions = peopleNode("div", "people-actions");
       const liked = peopleLikeIds.has(person.id);
