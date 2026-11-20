@@ -79,8 +79,9 @@
 
 ## Release gates
 
-- [ ] Latest feature-branch commit is deployed to the preview service.
-- [ ] Preview smoke tests pass without writing test data.
+- [ ] Browser/runtime tests pass using a local or otherwise data-isolated non-production build.
+- [ ] If no data-isolated environment is available, mark write-dependent tests blocked; do not use the shared-Supabase preview for test writes.
+- [ ] Any preview deployment is separately approved and limited to read-only checks until a safe test database exists.
 - [ ] README and PR description accurately distinguish implemented features from roadmap work.
 - [ ] PR is reviewed and mergeable.
 - [ ] Merge to `main` is verified by commit SHA.
