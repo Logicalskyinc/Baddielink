@@ -1,6 +1,6 @@
 -- Strengthen generated usernames for new accounts without changing existing handles.
--- 10 hexadecimal UUID characters provide a 40-bit suffix while keeping the
--- generated username within the existing 24-character profile constraint.
+-- An 8-character base plus a 15-hex-character (60-bit) UUID hash suffix
+-- fits the existing 24-character username constraint.
 
 CREATE OR REPLACE FUNCTION private.create_user_records()
 RETURNS trigger
@@ -20,7 +20,7 @@ BEGIN
   safe_name := lower(
     regexp_replace(base_name, '[^a-zA-Z0-9_]', '', 'g')
   );
-  safe_name := left(safe_name, 13);
+  safe_name := left(safe_name, 8);
 
   IF char_length(safe_name) < 3 THEN
     safe_name := 'member';
@@ -29,7 +29,7 @@ BEGIN
   INSERT INTO public.profiles (id, username, display_name)
   VALUES (
     NEW.id,
-    safe_name || '_' || left(replace(NEW.id::text, '-', ''), 10),
+    safe_name || '_' || left(pg_catalog.md5(NEW.id::text), 15),
     coalesce(
       nullif(trim(NEW.raw_user_meta_data ->> 'display_name'), ''),
       'Nouveau membre'
@@ -61,9 +61,9 @@ BEGIN
     RAISE EXCEPTION 'Account-record trigger must keep an empty search_path';
   END IF;
 
-  IF position('left(safe_name, 13)' IN function_definition) = 0
-     OR position('left(replace(NEW.id::text, ''-'', ''''), 10)' IN function_definition) = 0 THEN
-    RAISE EXCEPTION 'Generated username must use a 13-character base and 10-character UUID suffix';
+  IF position('left(safe_name, 8)' IN function_definition) = 0
+     OR position('left(pg_catalog.md5(NEW.id::text), 15)' IN function_definition) = 0 THEN
+    RAISE EXCEPTION 'Generated username must use an 8-character base and 15-character hash suffix';
   END IF;
 
   SELECT pg_get_triggerdef(t.oid)
@@ -85,8 +85,9 @@ BEGIN
     WHERE n.nspname = 'public'
       AND t.relname = 'profiles'
       AND c.conname = 'profiles_username_format'
+      AND pg_get_constraintdef(c.oid) LIKE '%3,24%'
   ) THEN
-    RAISE EXCEPTION 'Expected profiles username format constraint is missing';
+    RAISE EXCEPTION 'Expected profiles username format constraint with a 24-character maximum is missing';
   END IF;
 END
 $$;
