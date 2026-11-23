@@ -1,8 +1,8 @@
 -- BaddieLink recurring referral rewards
 -- REVIEW PROPOSAL ONLY. Depends on the BLC ledger and gift settlement proposals.
--- Referral rewards are BLC-only and funded from the existing 30% platform share.
--- For an eligible referred member's gift: recipient 70%, referrer 5%, platform 25%.
--- Without an eligible referrer: recipient 70%, platform 30%.
+-- Rewards are deferred until a referred member sends a gift from purchased-BLC-funded inventory.
+-- The reward is 5% of the purchased-BLC-funded portion, carved from the 30% commission
+-- already earned on that gift. Referral-funded BLC never qualifies.
 -- No cash-out, bank payout, or Mobile Money flow is defined here.
 
 BEGIN;
@@ -95,11 +95,10 @@ COMMIT;
 -- 4. Prevent self-referral, duplicate attribution, and referral-code owner changes.
 -- 5. Only reward a referrer whose account remains email-confirmed, adult-declared,
 --    and not restricted/removed at settlement time.
--- 6. Reward calculation is floor(eligible gift face value * 5 / 100) whole BLC.
---    Values that round to zero produce no reward; platform retains that remainder.
--- 7. Every reward must be posted in the same wallet transaction as the eligible
---    gift settlement, with XOF funding moved from platform revenue to referral
---    funding and BLC credited to the referrer's non-withdrawable referral wallet.
+-- 6. Reward calculation is floor(purchased-BLC-funded gift value * 5 / 100) whole BLC.
+--    Referral-funded BLC is excluded; values rounding to zero create no reward.
+-- 7. Reward posting is atomic with gift settlement: XOF is reclassified from earned
+--    platform revenue into referral funding, and BLC is credited to referral_blc.
 -- 8. No cash-out or transfer from referral_blc is permitted.
--- 9. Test duplicate gift events, duplicate signup attribution, race conditions,
---    blocked/self-referrals, ineligible referrers, rounding and ledger balance.
+-- 9. Test FIFO provenance, mixed funding, integer remainder allocation, duplicate
+--    gift events, concurrent sends, ineligible referrers, rounding and ledger balance.
