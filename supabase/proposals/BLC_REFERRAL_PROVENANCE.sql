@@ -20,8 +20,8 @@ CREATE TABLE private.gift_inventory_funding_lots (
   purchased_blc_remaining bigint NOT NULL CHECK (purchased_blc_remaining >= 0),
   referral_blc_remaining bigint NOT NULL CHECK (referral_blc_remaining >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT gift_inventory_funding_lot_value_check
-    CHECK (purchased_blc_remaining + referral_blc_remaining >= 0)
+  CONSTRAINT gift_inventory_funding_lot_empty_check
+    CHECK (quantity_remaining > 0 OR (purchased_blc_remaining = 0 AND referral_blc_remaining = 0))
 );
 
 CREATE INDEX gift_inventory_funding_lots_fifo_idx
