@@ -39,7 +39,8 @@ These are logical account classes. Physical schema and posting model must be fin
 | payment_intents | Provider purchase lifecycle | Unique internal reference; server-verified amount/currency/status |
 | payment_events | Provider callback deduplication | Unique provider event ID; signature/verification metadata; replay-safe |
 | referral_attributions | Referrer relationship | One immutable eligible referrer per referred account; no self-referral |
-| referral_rewards | Reward calculation and settlement | 5% of eligible net purchase value; funded from platform's 30% share |
+| gift_inventory_funding_lots | Purchased/referral BLC composition of each inventory batch | Created from purchase ledger entries; FIFO consumption; exact remaining source amounts |
+| referral_rewards | Deferred reward calculation and settlement | 5% of purchased-BLC-funded gift value; credited only on gift send and funded from commission already earned |
 | payout_requests | Future earnings withdrawal | Disabled until separate provider/compliance approval; minimum 2,500 XOF |
 | financial_audit_events | Privileged financial operations | Append-only actor, reason, before/after reference and timestamp |
 
@@ -52,6 +53,9 @@ These are logical account classes. Physical schema and posting model must be fin
 - Use database row locks or equivalent concurrency-safe constraints for inventory and spendable balances.
 - Use deterministic rounding for the 70/30 split. The two allocations must always sum exactly to the gross value.
 - Gift sending must not debit a generic BLC balance unless the member explicitly bought a gift using BLC. Gift inventory and wallet credits remain separate.
+- Preserve purchased-BLC versus referral-BLC composition in each gift inventory funding lot. Consume lots FIFO and allocate integer remainders deterministically.
+- Release a referral reward only when a referred member sends a gift. Calculate 5% only on the purchased-BLC-funded portion; referral-funded BLC never qualifies.
+- Reclassify the reward from the gift's already-earned platform commission in the same balanced wallet transaction. A fully purchased-BLC-funded gift leaves 25% with the platform; a mixed-funded gift leaves the balance of its 30% share after the reward.
 - Payment confirmation must be server-to-server verified. Browser redirects and client claims are not proof of payment.
 - Duplicate payment events and duplicate gift requests must return the original outcome without duplicate credits or inventory consumption.
 - Refunds and chargebacks use compensating entries and preserve the original transaction history.
@@ -64,7 +68,7 @@ These are logical account classes. Physical schema and posting model must be fin
 | Authenticated member | Own wallet summary, own ledger history, own gift inventory, own gift history, own referral reward history | No direct table writes |
 | Gift posting RPC | Minimum required account/inventory state | Atomic gift transaction and ledger postings |
 | Payment webhook/service | Relevant payment intent and event | Verified payment state and purchased-credit ledger postings |
-| Referral settlement worker | Eligible purchase and attribution state | Referral reward postings funded from platform share |
+| Gift settlement provenance trigger | Gift inventory funding lot and immutable referral attribution | Deferred referral reward postings, atomically funded from earned platform commission |
 | Payout service (future) | Eligible earnings and payout state | Payout state and linked ledger postings, only after separate launch approval |
 | Admin/moderator | No unrestricted financial write access | No direct balance edits; exceptional adjustment must use dedicated audited RPC and owner-level authorization |
 | Anonymous user | Nothing | Nothing |
