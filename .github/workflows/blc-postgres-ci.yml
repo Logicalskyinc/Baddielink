@@ -69,3 +69,6 @@ jobs:
 
       - name: Run BLC integration tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
+
+      - name: Run BLC concurrent spending and inventory tests
+        run: bash supabase/proposals/tests/blc_concurrency.sh
