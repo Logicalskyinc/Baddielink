@@ -1,5 +1,5 @@
 -- BaddieLink gift catalog, inventory and atomic settlement
--- REVIEW PROPOSAL ONLY. Apply after BLC_LEDGER_FOUNDATION.sql and before BLC_REFERRAL_REWARDS.sql and BLC_REFERRAL_PROVENANCE.sql.
+-- REVIEW PROPOSAL ONLY. Apply after BLC_LEDGER_FOUNDATION.sql and before BLC_REFERRAL_REWARDS.sql.
 -- Intentionally outside supabase/migrations. Do not execute against production.
 -- All money and credits are integer minor units (XOF and whole BLC).
 
@@ -502,8 +502,7 @@ COMMIT;
 
 -- Required integration before promotion:
 -- 1. Apply proposal dependencies in order: ledger, gift tables/functions,
---    referral tables, then authenticated RPC wrappers. PL/pgSQL settlement
---    references referral tables at runtime, after all proposal objects exist.
+--    referral tables, provenance triggers, then authenticated RPC wrappers.
 -- 2. Define refund/chargeback treatment for already-sent gifts before payments.
 -- 3. Add catalog read API with only active public gift fields.
 -- 4. Add concurrency, duplicate-request, insufficient-balance, self-gift,
