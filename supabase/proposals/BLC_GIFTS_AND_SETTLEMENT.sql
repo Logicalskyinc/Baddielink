@@ -1,5 +1,5 @@
 -- BaddieLink gift catalog, inventory and atomic settlement
--- REVIEW PROPOSAL ONLY. Depends on BLC_LEDGER_FOUNDATION.sql and BLC_REFERRAL_REWARDS.sql.
+-- REVIEW PROPOSAL ONLY. Apply after BLC_LEDGER_FOUNDATION.sql and before BLC_REFERRAL_REWARDS.sql.
 -- Intentionally outside supabase/migrations. Do not execute against production.
 -- All money and credits are integer minor units (XOF and whole BLC).
 
@@ -223,6 +223,12 @@ BEGIN
   -- alongside it from the referral-funding system account. Purchased BLC covers any remainder.
   referral_account_id := private.ensure_member_wallet_account(
     target_user_id, 'referral_blc', 'BLC'
+  );
+
+  -- Create the purchased wallet row on first use. Its balance remains zero
+  -- until a separately verified BLC purchase-credit flow is implemented.
+  purchased_account_id := private.ensure_member_wallet_account(
+    target_user_id, 'purchased_blc', 'BLC'
   );
 
   SELECT id INTO purchased_account_id
