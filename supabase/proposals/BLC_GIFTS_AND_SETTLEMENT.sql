@@ -50,12 +50,13 @@ CREATE TABLE private.gift_transactions (
   quantity integer NOT NULL DEFAULT 1 CHECK (quantity = 1),
   unit_face_value_xof bigint NOT NULL CHECK (unit_face_value_xof > 0),
   recipient_share_xof bigint NOT NULL CHECK (recipient_share_xof > 0),
+  referral_share_xof bigint NOT NULL DEFAULT 0 CHECK (referral_share_xof >= 0),
   platform_share_xof bigint NOT NULL CHECK (platform_share_xof >= 0),
   wallet_transaction_id uuid NOT NULL UNIQUE REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
   idempotency_key text NOT NULL UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT gift_transaction_split_conserves_value
-    CHECK (recipient_share_xof + platform_share_xof = unit_face_value_xof),
+    CHECK (recipient_share_xof + referral_share_xof + platform_share_xof = unit_face_value_xof),
   CONSTRAINT gift_transaction_not_self_gift CHECK (sender_user_id <> recipient_user_id)
 );
 
@@ -285,10 +286,15 @@ DECLARE
   inventory_quantity bigint;
   recipient_account_id uuid;
   revenue_account_id uuid;
+  referral_funding_account_id uuid;
+  referral_account_id uuid;
   inventory_liability_account_id uuid;
+  referral_attribution_id uuid;
+  referrer_user_id uuid;
   transaction_id uuid;
   existing_transaction_id uuid;
   recipient_share bigint;
+  referral_share bigint;
   platform_share bigint;
 BEGIN
   IF target_sender_id IS NULL OR target_recipient_id IS NULL
@@ -340,7 +346,26 @@ BEGIN
   WHERE user_id = target_sender_id AND gift_id = target_gift_id;
 
   recipient_share := floor(gift_row.face_value_xof * 70 / 100.0)::bigint;
-  platform_share := gift_row.face_value_xof - recipient_share;
+
+  -- Recurring referral reward: 5% of eligible gift value, paid in BLC.
+  -- A referrer must still be email-confirmed, adult-declared and unrestricted.
+  SELECT a.id, a.referrer_user_id
+    INTO referral_attribution_id, referrer_user_id
+  FROM private.referral_attributions a
+  JOIN auth.users ru ON ru.id = a.referrer_user_id
+  JOIN public.profiles rp ON rp.id = a.referrer_user_id
+  WHERE a.referred_user_id = target_sender_id
+    AND ru.email_confirmed_at IS NOT NULL
+    AND rp.moderation_status NOT IN ('restricted', 'removed')
+    AND private.is_adult_declared(a.referrer_user_id)
+  FOR SHARE OF a;
+
+  referral_share := CASE
+    WHEN referral_attribution_id IS NOT NULL
+      THEN floor(gift_row.face_value_xof * 5 / 100.0)::bigint
+    ELSE 0
+  END;
+  platform_share := gift_row.face_value_xof - recipient_share - referral_share;
 
   recipient_account_id := private.ensure_member_wallet_account(
     target_recipient_id, 'recipient_earnings_xof', 'XOF'
@@ -356,7 +381,19 @@ BEGIN
   WHERE account_code = 'system:xof-gift-inventory-liability'
   FOR UPDATE;
 
-  IF revenue_account_id IS NULL OR inventory_liability_account_id IS NULL THEN
+  IF referral_share > 0 THEN
+    referral_account_id := private.ensure_member_wallet_account(
+      referrer_user_id, 'referral_blc', 'BLC'
+    );
+
+    SELECT id INTO referral_funding_account_id
+    FROM private.wallet_accounts
+    WHERE account_code = 'system:xof-referral-funding'
+    FOR UPDATE;
+  END IF;
+
+  IF revenue_account_id IS NULL OR inventory_liability_account_id IS NULL
+     OR (referral_share > 0 AND (referral_account_id IS NULL OR referral_funding_account_id IS NULL)) THEN
     RAISE EXCEPTION 'Gift settlement accounts are not configured';
   END IF;
 
@@ -376,14 +413,34 @@ BEGIN
     (transaction_id, recipient_account_id, 'XOF', recipient_share),
     (transaction_id, revenue_account_id, 'XOF', platform_share);
 
+  IF referral_share > 0 THEN
+    INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+    VALUES
+      (transaction_id, referral_funding_account_id, 'XOF', referral_share),
+      (transaction_id, referral_account_id, 'BLC', referral_share),
+      (transaction_id, (SELECT id FROM private.wallet_accounts WHERE account_code = 'system:blc-issuance'), 'BLC', -referral_share);
+  END IF;
+
   INSERT INTO private.gift_transactions (
     sender_user_id, recipient_user_id, gift_id, unit_face_value_xof,
-    recipient_share_xof, platform_share_xof, wallet_transaction_id, idempotency_key
+    recipient_share_xof, referral_share_xof, platform_share_xof, wallet_transaction_id, idempotency_key
   )
   VALUES (
     target_sender_id, target_recipient_id, target_gift_id, gift_row.face_value_xof,
-    recipient_share, platform_share, transaction_id, target_idempotency_key
+    recipient_share, referral_share, platform_share, transaction_id, target_idempotency_key
   );
+
+  IF referral_share > 0 THEN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc, wallet_transaction_id
+    )
+    SELECT
+      referral_attribution_id, referrer_user_id, target_sender_id,
+      gt.id, gift_row.face_value_xof, referral_share, transaction_id
+    FROM private.gift_transactions gt
+    WHERE gt.wallet_transaction_id = transaction_id;
+  END IF;
 
   RETURN transaction_id;
 END;
