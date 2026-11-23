@@ -18,7 +18,8 @@ CREATE TABLE private.wallet_accounts (
     'platform_blc_issuance',
     'platform_xof_gift_clearing',
     'platform_xof_revenue',
-    'platform_xof_referral_funding'
+    'platform_xof_referral_funding',
+    'platform_xof_gift_inventory_liability'
   )),
   unit text NOT NULL CHECK (unit IN ('BLC', 'XOF')),
   is_system boolean NOT NULL DEFAULT false,
