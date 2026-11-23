@@ -1,0 +1,185 @@
+-- BaddieLink BLC ledger foundation
+-- REVIEW PROPOSAL ONLY. This file is intentionally outside supabase/migrations.
+-- Do not execute against production. Promote to a timestamped migration only
+-- after CLI-generated migration workflow, peer review, and isolated testing.
+
+BEGIN;
+
+CREATE SCHEMA IF NOT EXISTS private;
+
+CREATE TABLE private.wallet_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id uuid REFERENCES auth.users(id) ON DELETE RESTRICT,
+  account_code text NOT NULL,
+  account_kind text NOT NULL CHECK (account_kind IN (
+    'purchased_blc',
+    'referral_blc',
+    'recipient_earnings_xof',
+    'platform_blc_issuance',
+    'platform_xof_gift_clearing',
+    'platform_xof_revenue',
+    'platform_xof_referral_funding'
+  )),
+  unit text NOT NULL CHECK (unit IN ('BLC', 'XOF')),
+  is_system boolean NOT NULL DEFAULT false,
+  is_frozen boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT wallet_accounts_system_owner_check CHECK (
+    (is_system AND owner_user_id IS NULL)
+    OR (NOT is_system AND owner_user_id IS NOT NULL)
+  ),
+  CONSTRAINT wallet_accounts_kind_unit_check CHECK (
+    (account_kind IN ('purchased_blc', 'referral_blc', 'platform_blc_issuance') AND unit = 'BLC')
+    OR (account_kind IN (
+      'recipient_earnings_xof',
+      'platform_xof_gift_clearing',
+      'platform_xof_revenue',
+      'platform_xof_referral_funding'
+    ) AND unit = 'XOF')
+  ),
+  CONSTRAINT wallet_accounts_id_unit_unique UNIQUE (id, unit),
+  CONSTRAINT wallet_accounts_code_unique UNIQUE (account_code)
+);
+
+CREATE UNIQUE INDEX wallet_accounts_member_kind_unique
+  ON private.wallet_accounts(owner_user_id, account_kind)
+  WHERE owner_user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX wallet_accounts_system_kind_unique
+  ON private.wallet_accounts(account_kind)
+  WHERE is_system;
+
+CREATE TABLE private.wallet_transactions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  transaction_type text NOT NULL CHECK (transaction_type IN (
+    'purchase_credit',
+    'gift_settlement',
+    'referral_reward',
+    'refund',
+    'chargeback',
+    'manual_adjustment',
+    'payout'
+  )),
+  idempotency_key text NOT NULL,
+  actor_user_id uuid REFERENCES auth.users(id) ON DELETE RESTRICT,
+  related_reference text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT wallet_transactions_idempotency_unique UNIQUE (idempotency_key),
+  CONSTRAINT wallet_transactions_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+
+CREATE TABLE private.wallet_ledger_entries (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  transaction_id uuid NOT NULL REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
+  account_id uuid NOT NULL,
+  unit text NOT NULL CHECK (unit IN ('BLC', 'XOF')),
+  amount bigint NOT NULL CHECK (amount <> 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT wallet_ledger_account_unit_fk
+    FOREIGN KEY (account_id, unit)
+    REFERENCES private.wallet_accounts(id, unit)
+    ON DELETE RESTRICT
+);
+
+CREATE INDEX wallet_ledger_entries_account_history_idx
+  ON private.wallet_ledger_entries(account_id, created_at DESC, id DESC);
+
+CREATE INDEX wallet_ledger_entries_transaction_idx
+  ON private.wallet_ledger_entries(transaction_id, unit);
+
+CREATE INDEX wallet_transactions_actor_history_idx
+  ON private.wallet_transactions(actor_user_id, created_at DESC);
+
+-- The ledger is append-only. Correct mistakes with compensating transactions.
+CREATE OR REPLACE FUNCTION private.reject_wallet_ledger_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+BEGIN
+  RAISE EXCEPTION 'Wallet ledger records are immutable; post a compensating transaction instead';
+END;
+$function$;
+
+CREATE TRIGGER wallet_transactions_immutable
+  BEFORE UPDATE OR DELETE ON private.wallet_transactions
+  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_ledger_mutation();
+
+CREATE TRIGGER wallet_ledger_entries_immutable
+  BEFORE UPDATE OR DELETE ON private.wallet_ledger_entries
+  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_ledger_mutation();
+
+-- Every committed transaction must contain entries and balance to zero per unit.
+-- DEFERRABLE allows a multi-entry posting to be assembled in one SQL transaction.
+CREATE OR REPLACE FUNCTION private.assert_wallet_transaction_balanced()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+DECLARE
+  target_transaction_id uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'wallet_transactions' THEN
+    target_transaction_id := NEW.id;
+  ELSE
+    target_transaction_id := NEW.transaction_id;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM private.wallet_ledger_entries e
+    WHERE e.transaction_id = target_transaction_id
+  ) THEN
+    RAISE EXCEPTION 'Wallet transaction % has no ledger entries', target_transaction_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM private.wallet_ledger_entries e
+    WHERE e.transaction_id = target_transaction_id
+    GROUP BY e.unit
+    HAVING sum(e.amount) <> 0
+  ) THEN
+    RAISE EXCEPTION 'Wallet transaction % is not balanced per unit', target_transaction_id;
+  END IF;
+
+  RETURN NULL;
+END;
+$function$;
+
+CREATE CONSTRAINT TRIGGER wallet_transaction_balance_on_create
+  AFTER INSERT ON private.wallet_transactions
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.assert_wallet_transaction_balanced();
+
+CREATE CONSTRAINT TRIGGER wallet_transaction_balance_on_entry
+  AFTER INSERT ON private.wallet_ledger_entries
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.assert_wallet_transaction_balanced();
+
+-- System accounts are stable by account_code and can be seeded idempotently.
+INSERT INTO private.wallet_accounts (account_code, account_kind, unit, is_system)
+VALUES
+  ('system:blc-issuance', 'platform_blc_issuance', 'BLC', true),
+  ('system:xof-gift-clearing', 'platform_xof_gift_clearing', 'XOF', true),
+  ('system:xof-platform-revenue', 'platform_xof_revenue', 'XOF', true),
+  ('system:xof-referral-funding', 'platform_xof_referral_funding', 'XOF', true)
+ON CONFLICT (account_code) DO NOTHING;
+
+-- Private financial records are not exposed through the client Data API.
+-- No anon/authenticated table grants are created. No browser mutation path exists.
+ALTER TABLE private.wallet_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.wallet_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.wallet_ledger_entries ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE
+  private.wallet_accounts,
+  private.wallet_transactions,
+  private.wallet_ledger_entries
+FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION private.reject_wallet_ledger_mutation() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.assert_wallet_transaction_balanced() FROM PUBLIC, anon, authenticated;
+
+COMMIT;
