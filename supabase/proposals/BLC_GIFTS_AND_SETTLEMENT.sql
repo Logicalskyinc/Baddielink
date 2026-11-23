@@ -135,8 +135,7 @@ BEGIN
   FROM private.wallet_accounts
   WHERE owner_user_id = target_user_id
     AND account_kind = target_account_kind
-    AND unit = target_unit
-  FOR UPDATE;
+    AND unit = target_unit;
 
   IF result_id IS NULL THEN
     RAISE EXCEPTION 'Unable to resolve member wallet account';
@@ -147,8 +146,9 @@ END;
 $function$;
 
 -- This purchase RPC is intentionally backend-only for now. It assumes a
--- verified, posted BLC balance exists in the purchased_blc account. Balance
--- calculation locks the account row to serialize concurrent spending.
+-- verified, posted BLC balance exists in the purchased_blc account. Member
+-- debit accounts are locked together in stable ID order to serialize spending.
+-- Account identity lookups and credit-only wallet creation do not take row locks.
 CREATE OR REPLACE FUNCTION private.purchase_gift_inventory(
   target_user_id uuid,
   target_gift_id uuid,
@@ -284,23 +284,23 @@ BEGIN
   SELECT id INTO issuance_account_id
   FROM private.wallet_accounts
   WHERE account_code = 'system:blc-issuance'
-  FOR UPDATE;
+
 
   SELECT id INTO clearing_account_id
   FROM private.wallet_accounts
   WHERE account_code = 'system:xof-gift-clearing'
-  FOR UPDATE;
+
 
   SELECT id INTO inventory_liability_account_id
   FROM private.wallet_accounts
   WHERE account_code = 'system:xof-gift-inventory-liability'
-  FOR UPDATE;
+
 
   IF referral_spend > 0 THEN
     SELECT id INTO referral_funding_account_id
     FROM private.wallet_accounts
     WHERE account_code = 'system:xof-referral-funding'
-    FOR UPDATE;
+
   END IF;
 
   IF issuance_account_id IS NULL OR clearing_account_id IS NULL
@@ -453,12 +453,12 @@ BEGIN
   SELECT id INTO revenue_account_id
   FROM private.wallet_accounts
   WHERE account_code = 'system:xof-platform-revenue'
-  FOR UPDATE;
+
 
   SELECT id INTO inventory_liability_account_id
   FROM private.wallet_accounts
   WHERE account_code = 'system:xof-gift-inventory-liability'
-  FOR UPDATE;
+
 
   IF revenue_account_id IS NULL OR inventory_liability_account_id IS NULL THEN
     RAISE EXCEPTION 'Gift settlement accounts are not configured';
