@@ -5,11 +5,8 @@
 
 BEGIN;
 
--- Inventory backing: a purchased gift reserves its XOF face value in this account.
--- This is added to the ledger account-kind allow-list in the foundation proposal
--- before both proposals are promoted into executable migrations.
--- Required new system account:
---   platform_xof_gift_inventory_liability (XOF)
+-- Inventory backing uses the platform_xof_gift_inventory_liability system account
+-- seeded by the companion ledger foundation proposal.
 
 CREATE TABLE private.gift_catalog (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -157,6 +154,8 @@ BEGIN
     RAISE EXCEPTION 'Invalid gift inventory purchase request';
   END IF;
 
+  PERFORM pg_advisory_xact_lock(hashtextextended(target_idempotency_key, 0));
+
   SELECT wallet_transaction_id INTO existing_transaction_id
   FROM private.gift_inventory_purchases
   WHERE buyer_user_id = target_user_id
@@ -226,7 +225,7 @@ BEGIN
     transaction_type, idempotency_key, actor_user_id, related_reference, metadata
   )
   VALUES (
-    'gift_settlement', target_idempotency_key, target_user_id,
+    'gift_inventory_purchase', target_idempotency_key, target_user_id,
     target_gift_id::text,
     jsonb_build_object('operation', 'gift_inventory_purchase', 'quantity', target_quantity)
   )
@@ -290,6 +289,8 @@ BEGIN
      OR length(target_idempotency_key) NOT BETWEEN 12 AND 160 THEN
     RAISE EXCEPTION 'Invalid gift settlement request';
   END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(target_idempotency_key, 0));
 
   SELECT id INTO existing_transaction_id
   FROM private.wallet_transactions
@@ -387,14 +388,11 @@ REVOKE ALL ON FUNCTION private.settle_gift(uuid, uuid, uuid, text) FROM PUBLIC, 
 COMMIT;
 
 -- Required integration before promotion:
--- 1. Add 'platform_xof_gift_inventory_liability' to wallet_accounts.account_kind
---    and the XOF unit check in BLC_LEDGER_FOUNDATION.sql.
--- 2. Seed account_code 'system:xof-gift-inventory-liability'.
--- 3. Add public SECURITY DEFINER wrappers that derive sender/buyer from auth.uid(),
+-- 1. Add public SECURITY DEFINER wrappers that derive sender/buyer from auth.uid(),
 --    verify email confirmation + adult declaration + non-restricted account,
 --    verify recipient eligibility and block state, and grant EXECUTE only to
 --    authenticated. Never accept an arbitrary sender id from the browser.
--- 4. Define refund/chargeback treatment for already-sent gifts before payments.
--- 5. Add catalog read API with only active public gift fields.
--- 6. Add concurrency, duplicate-request, insufficient-balance, self-gift,
+-- 2. Define refund/chargeback treatment for already-sent gifts before payments.
+-- 3. Add catalog read API with only active public gift fields.
+-- 4. Add concurrency, duplicate-request, insufficient-balance, self-gift,
 --    blocked-user, rounding, rollback and ledger-reconciliation tests.
