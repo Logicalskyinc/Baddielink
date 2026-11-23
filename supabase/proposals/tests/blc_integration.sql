@@ -4,12 +4,18 @@
 INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
   ('00000000-0000-0000-0000-000000000001', 'referrer@example.test', now()),
   ('00000000-0000-0000-0000-000000000002', 'sender@example.test', now()),
-  ('00000000-0000-0000-0000-000000000003', 'recipient@example.test', now());
+  ('00000000-0000-0000-0000-000000000003', 'recipient@example.test', now()),
+  ('00000000-0000-0000-0000-000000000004', 'mixed-sender@example.test', now()),
+  ('00000000-0000-0000-0000-000000000005', 'referral-only-sender@example.test', now()),
+  ('00000000-0000-0000-0000-000000000006', 'rollback-sender@example.test', now());
 
 INSERT INTO public.profiles (id, moderation_status) VALUES
   ('00000000-0000-0000-0000-000000000001', 'approved'),
   ('00000000-0000-0000-0000-000000000002', 'approved'),
-  ('00000000-0000-0000-0000-000000000003', 'approved');
+  ('00000000-0000-0000-0000-000000000003', 'approved'),
+  ('00000000-0000-0000-0000-000000000004', 'approved'),
+  ('00000000-0000-0000-0000-000000000005', 'approved'),
+  ('00000000-0000-0000-0000-000000000006', 'approved');
 
 INSERT INTO private.gift_catalog (
   id, gift_code, display_name, price_blc, face_value_xof, asset_key, is_active
@@ -32,6 +38,16 @@ INSERT INTO private.referral_attributions (
   '30000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000002',
+  '20000000-0000-0000-0000-000000000001'
+), (
+  '30000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000004',
+  '20000000-0000-0000-0000-000000000001'
+), (
+  '30000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000005',
   '20000000-0000-0000-0000-000000000001'
 );
 
@@ -65,6 +81,89 @@ END;
 $$;
 COMMIT;
 
+-- Seed mixed-funding and referral-only balances. These are isolated test
+-- credits representing already-earned referral BLC; each unit is balanced.
+BEGIN;
+DO $
+DECLARE
+  user_id uuid;
+  purchased_account uuid;
+  referral_account uuid;
+  issuance_account uuid;
+  revenue_account uuid;
+  referral_funding_account uuid;
+  tx_id uuid;
+  purchased_credit bigint;
+  referral_credit bigint;
+BEGIN
+  SELECT id INTO issuance_account FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+  SELECT id INTO revenue_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-platform-revenue';
+  SELECT id INTO referral_funding_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-referral-funding';
+
+  -- User 4 receives 60 purchased + 40 referral BLC.
+  user_id := '00000000-0000-0000-0000-000000000004';
+  purchased_account := private.ensure_member_wallet_account(user_id, 'purchased_blc', 'BLC');
+  referral_account := private.ensure_member_wallet_account(user_id, 'referral_blc', 'BLC');
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-mixed-funding-seed-004', user_id) RETURNING id INTO tx_id;
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (tx_id, purchased_account, 'BLC', 60),
+    (tx_id, referral_account, 'BLC', 40),
+    (tx_id, issuance_account, 'BLC', -100),
+    (tx_id, revenue_account, 'XOF', 40),
+    (tx_id, referral_funding_account, 'XOF', -40);
+
+  -- User 5 receives referral BLC only.
+  user_id := '00000000-0000-0000-0000-000000000005';
+  referral_account := private.ensure_member_wallet_account(user_id, 'referral_blc', 'BLC');
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-referral-only-seed-005', user_id) RETURNING id INTO tx_id;
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (tx_id, referral_account, 'BLC', 100),
+    (tx_id, issuance_account, 'BLC', -100),
+    (tx_id, revenue_account, 'XOF', 100),
+    (tx_id, referral_funding_account, 'XOF', -100);
+
+  -- User 6 receives purchased BLC for an intentional trigger-failure rollback test.
+  user_id := '00000000-0000-0000-0000-000000000006';
+  purchased_account := private.ensure_member_wallet_account(user_id, 'purchased_blc', 'BLC');
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-rollback-seed-006', user_id) RETURNING id INTO tx_id;
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (tx_id, purchased_account, 'BLC', 100),
+    (tx_id, issuance_account, 'BLC', -100);
+END;
+$;
+COMMIT;
+
+-- Purchase one gift each with mixed, referral-only, and rollback-test funding.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory('10000000-0000-0000-0000-000000000001', 1, 'ci-mixed-purchase-004');
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory('10000000-0000-0000-0000-000000000001', 1, 'ci-referral-only-purchase-005');
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000006', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory('10000000-0000-0000-0000-000000000001', 1, 'ci-rollback-purchase-006');
+RESET ROLE;
+COMMIT;
+
 -- Exercise the authenticated wrapper, deriving sender identity from auth.uid().
 BEGIN;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
@@ -86,6 +185,21 @@ SELECT public.send_gift(
   '10000000-0000-0000-0000-000000000001',
   'ci-gift-send-001'
 );
+RESET ROLE;
+COMMIT;
+
+-- Send mixed-funded and referral-only gifts through the same authenticated RPC.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift('00000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'ci-mixed-send-004');
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift('00000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'ci-referral-only-send-005');
 RESET ROLE;
 COMMIT;
 
@@ -145,13 +259,110 @@ BEGIN
     RAISE EXCEPTION 'Gift settlement ledger is not balanced';
   END IF;
 
-  IF (SELECT quantity FROM private.member_gift_inventory
+  IF coalesce((SELECT quantity FROM private.member_gift_inventory
       WHERE user_id = '00000000-0000-0000-0000-000000000002'
-        AND gift_id = gift_row.gift_id) <> 0 THEN
+        AND gift_id = gift_row.gift_id), -1) <> 0 THEN
     RAISE EXCEPTION 'Gift inventory quantity was not decremented';
   END IF;
 END;
 $$;
+
+-- Mixed funding must reward only the purchased 60% of the gift value.
+DO $
+DECLARE
+  mixed_row private.gift_transactions%ROWTYPE;
+  mixed_reward private.referral_rewards%ROWTYPE;
+  referral_only_row private.gift_transactions%ROWTYPE;
+  remaining_purchased bigint;
+  remaining_referral bigint;
+BEGIN
+  SELECT * INTO STRICT mixed_row FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-mixed-send-004';
+  IF mixed_row.recipient_share_xof <> 70
+     OR mixed_row.referral_share_xof <> 3
+     OR mixed_row.platform_share_xof <> 27 THEN
+    RAISE EXCEPTION 'Mixed funding split incorrect: recipient %, referral %, platform %',
+      mixed_row.recipient_share_xof, mixed_row.referral_share_xof, mixed_row.platform_share_xof;
+  END IF;
+
+  SELECT * INTO STRICT mixed_reward FROM private.referral_rewards
+  WHERE gift_transaction_id = mixed_row.id;
+  IF mixed_reward.eligible_amount_xof <> 60 OR mixed_reward.reward_amount_blc <> 3 THEN
+    RAISE EXCEPTION 'Mixed funding reward should be 3 BLC on 60 XOF eligible value';
+  END IF;
+
+  SELECT * INTO STRICT referral_only_row FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-referral-only-send-005';
+  IF referral_only_row.recipient_share_xof <> 70
+     OR referral_only_row.referral_share_xof <> 0
+     OR referral_only_row.platform_share_xof <> 30 THEN
+    RAISE EXCEPTION 'Referral-funded gift must not earn a referral reward';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM private.referral_rewards WHERE gift_transaction_id = referral_only_row.id) THEN
+    RAISE EXCEPTION 'Referral-funded BLC incorrectly generated a referral reward';
+  END IF;
+
+  SELECT purchased_blc_remaining, referral_blc_remaining
+    INTO remaining_purchased, remaining_referral
+  FROM private.gift_inventory_funding_lots
+  WHERE user_id = '00000000-0000-0000-0000-000000000004';
+  IF remaining_purchased <> 0 OR remaining_referral <> 0 THEN
+    RAISE EXCEPTION 'Mixed funding provenance was not fully consumed';
+  END IF;
+
+  IF (SELECT count(*) FROM private.gift_transactions) <> 3
+     OR (SELECT count(*) FROM private.referral_rewards) <> 2 THEN
+    RAISE EXCEPTION 'Unexpected gift/reward record counts after funding cases';
+  END IF;
+END;
+$;
+
+-- Force a failure inside the AFTER INSERT provenance trigger, after settlement
+-- has decremented inventory and written draft ledger rows. The statement must
+-- roll back every write, including the inventory decrement.
+DO $
+DECLARE
+  before_inventory bigint;
+  before_transactions bigint;
+  before_gifts bigint;
+BEGIN
+  SELECT quantity INTO before_inventory FROM private.member_gift_inventory
+  WHERE user_id = '00000000-0000-0000-0000-000000000006'
+    AND gift_id = '10000000-0000-0000-0000-000000000001';
+
+  SELECT count(*) INTO before_transactions FROM private.wallet_transactions;
+  SELECT count(*) INTO before_gifts FROM private.gift_transactions;
+
+  DELETE FROM private.gift_inventory_funding_lots
+  WHERE user_id = '00000000-0000-0000-0000-000000000006';
+
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000006', true);
+    PERFORM public.send_gift(
+      '00000000-0000-0000-0000-000000000003',
+      '10000000-0000-0000-0000-000000000001',
+      'ci-forced-rollback-send-006'
+    );
+    RAISE EXCEPTION 'Expected missing-provenance trigger failure did not occur';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'Expected missing-provenance trigger failure did not occur' THEN
+      RAISE;
+    END IF;
+  END;
+
+  IF (SELECT quantity FROM private.member_gift_inventory
+      WHERE user_id = '00000000-0000-0000-0000-000000000006'
+        AND gift_id = '10000000-0000-0000-0000-000000000001') <> before_inventory THEN
+    RAISE EXCEPTION 'Failed gift send did not roll back inventory decrement';
+  END IF;
+
+  IF (SELECT count(*) FROM private.wallet_transactions) <> before_transactions
+     OR (SELECT count(*) FROM private.gift_transactions) <> before_gifts THEN
+    RAISE EXCEPTION 'Failed gift send left partial financial records';
+  END IF;
+END;
+$;
 
 -- A retry with the same key must return the original transaction and must not
 -- create a second gift or referral reward.
@@ -168,8 +379,8 @@ COMMIT;
 
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM private.gift_transactions) <> 1
-     OR (SELECT count(*) FROM private.referral_rewards) <> 1 THEN
+  IF (SELECT count(*) FROM private.gift_transactions) <> 3
+     OR (SELECT count(*) FROM private.referral_rewards) <> 2 THEN
     RAISE EXCEPTION 'Idempotent retry created duplicate financial records';
   END IF;
 
