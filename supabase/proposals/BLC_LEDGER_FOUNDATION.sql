@@ -34,7 +34,8 @@ CREATE TABLE private.wallet_accounts (
       'recipient_earnings_xof',
       'platform_xof_gift_clearing',
       'platform_xof_revenue',
-      'platform_xof_referral_funding'
+      'platform_xof_referral_funding',
+      'platform_xof_gift_inventory_liability'
     ) AND unit = 'XOF')
   ),
   CONSTRAINT wallet_accounts_id_unit_unique UNIQUE (id, unit),
@@ -54,6 +55,7 @@ CREATE TABLE private.wallet_transactions (
   transaction_type text NOT NULL CHECK (transaction_type IN (
     'purchase_credit',
     'gift_settlement',
+    'gift_inventory_purchase',
     'referral_reward',
     'refund',
     'chargeback',
@@ -241,7 +243,8 @@ VALUES
   ('system:blc-issuance', 'platform_blc_issuance', 'BLC', true),
   ('system:xof-gift-clearing', 'platform_xof_gift_clearing', 'XOF', true),
   ('system:xof-platform-revenue', 'platform_xof_revenue', 'XOF', true),
-  ('system:xof-referral-funding', 'platform_xof_referral_funding', 'XOF', true)
+  ('system:xof-referral-funding', 'platform_xof_referral_funding', 'XOF', true),
+  ('system:xof-gift-inventory-liability', 'platform_xof_gift_inventory_liability', 'XOF', true)
 ON CONFLICT (account_code) DO NOTHING;
 
 -- Private financial records are not exposed through the client Data API.
