@@ -64,9 +64,12 @@ CREATE TABLE private.wallet_transactions (
   actor_user_id uuid REFERENCES auth.users(id) ON DELETE RESTRICT,
   related_reference text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  is_posted boolean NOT NULL DEFAULT false,
+  posted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT wallet_transactions_idempotency_unique UNIQUE (idempotency_key),
-  CONSTRAINT wallet_transactions_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+  CONSTRAINT wallet_transactions_metadata_object CHECK (jsonb_typeof(metadata) = 'object'),
+  CONSTRAINT wallet_transactions_posted_timestamp_check CHECK ((is_posted AND posted_at IS NOT NULL) OR (NOT is_posted AND posted_at IS NULL))
 );
 
 CREATE TABLE private.wallet_ledger_entries (
@@ -92,6 +95,34 @@ CREATE INDEX wallet_transactions_actor_history_idx
   ON private.wallet_transactions(actor_user_id, created_at DESC);
 
 -- The ledger is append-only. Correct mistakes with compensating transactions.
+CREATE OR REPLACE FUNCTION private.reject_wallet_transaction_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Wallet transactions cannot be deleted';
+  END IF;
+
+  -- The only permitted update is the deferred transition from draft to posted.
+  IF OLD.is_posted
+     OR NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.transaction_type IS DISTINCT FROM OLD.transaction_type
+     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+     OR NEW.actor_user_id IS DISTINCT FROM OLD.actor_user_id
+     OR NEW.related_reference IS DISTINCT FROM OLD.related_reference
+     OR NEW.metadata IS DISTINCT FROM OLD.metadata
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.is_posted IS DISTINCT FROM true
+     OR NEW.posted_at IS NULL THEN
+    RAISE EXCEPTION 'Posted wallet transactions are immutable';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION private.reject_wallet_ledger_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -102,16 +133,6 @@ BEGIN
 END;
 $function$;
 
-CREATE TRIGGER wallet_transactions_immutable
-  BEFORE UPDATE OR DELETE ON private.wallet_transactions
-  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_ledger_mutation();
-
-CREATE TRIGGER wallet_ledger_entries_immutable
-  BEFORE UPDATE OR DELETE ON private.wallet_ledger_entries
-  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_ledger_mutation();
-
--- Every committed transaction must contain entries and balance to zero per unit.
--- DEFERRABLE allows a multi-entry posting to be assembled in one SQL transaction.
 CREATE OR REPLACE FUNCTION private.assert_wallet_transaction_balanced()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -119,11 +140,27 @@ SET search_path = ''
 AS $function$
 DECLARE
   target_transaction_id uuid;
+  already_posted boolean;
 BEGIN
   IF TG_TABLE_NAME = 'wallet_transactions' THEN
     target_transaction_id := NEW.id;
   ELSE
     target_transaction_id := NEW.transaction_id;
+  END IF;
+
+  SELECT t.is_posted
+    INTO already_posted
+  FROM private.wallet_transactions t
+  WHERE t.id = target_transaction_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Wallet transaction % does not exist', target_transaction_id;
+  END IF;
+
+  -- Multiple deferred constraint triggers may fire for one transaction.
+  IF already_posted THEN
+    RETURN NULL;
   END IF;
 
   IF NOT EXISTS (
@@ -144,10 +181,50 @@ BEGIN
     RAISE EXCEPTION 'Wallet transaction % is not balanced per unit', target_transaction_id;
   END IF;
 
+  UPDATE private.wallet_transactions
+  SET is_posted = true, posted_at = now()
+  WHERE id = target_transaction_id;
+
   RETURN NULL;
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION private.require_draft_wallet_transaction()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+DECLARE
+  parent_is_posted boolean;
+BEGIN
+  SELECT t.is_posted
+    INTO parent_is_posted
+  FROM private.wallet_transactions t
+  WHERE t.id = NEW.transaction_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR parent_is_posted THEN
+    RAISE EXCEPTION 'Ledger entries can only be added to an existing draft transaction';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER wallet_transactions_immutable
+  BEFORE UPDATE OR DELETE ON private.wallet_transactions
+  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_transaction_mutation();
+
+CREATE TRIGGER wallet_ledger_entries_immutable
+  BEFORE UPDATE OR DELETE ON private.wallet_ledger_entries
+  FOR EACH ROW EXECUTE FUNCTION private.reject_wallet_ledger_mutation();
+
+CREATE TRIGGER wallet_ledger_entries_require_draft
+  BEFORE INSERT ON private.wallet_ledger_entries
+  FOR EACH ROW EXECUTE FUNCTION private.require_draft_wallet_transaction();
+
+-- A deferred check posts the transaction only after all journal entries exist.
+-- Once posted, new entries and all changes/deletes are rejected.
 CREATE CONSTRAINT TRIGGER wallet_transaction_balance_on_create
   AFTER INSERT ON private.wallet_transactions
   DEFERRABLE INITIALLY DEFERRED
@@ -179,7 +256,9 @@ REVOKE ALL ON TABLE
   private.wallet_ledger_entries
 FROM PUBLIC, anon, authenticated;
 
+REVOKE ALL ON FUNCTION private.reject_wallet_transaction_mutation() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.reject_wallet_ledger_mutation() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION private.assert_wallet_transaction_balanced() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.require_draft_wallet_transaction() FROM PUBLIC, anon, authenticated;
 
 COMMIT;
