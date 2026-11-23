@@ -112,8 +112,8 @@ BEGIN
     (tx_id, purchased_account, 'BLC', 60),
     (tx_id, referral_account, 'BLC', 40),
     (tx_id, issuance_account, 'BLC', -100),
-    (tx_id, revenue_account, 'XOF', 40),
-    (tx_id, referral_funding_account, 'XOF', -40);
+    (tx_id, revenue_account, 'XOF', -40),
+    (tx_id, referral_funding_account, 'XOF', 40);
 
   -- User 5 receives referral BLC only.
   user_id := '00000000-0000-0000-0000-000000000005';
@@ -124,8 +124,8 @@ BEGIN
   VALUES
     (tx_id, referral_account, 'BLC', 100),
     (tx_id, issuance_account, 'BLC', -100),
-    (tx_id, revenue_account, 'XOF', 100),
-    (tx_id, referral_funding_account, 'XOF', -100);
+    (tx_id, revenue_account, 'XOF', -100),
+    (tx_id, referral_funding_account, 'XOF', 100);
 
   -- User 6 receives purchased BLC for an intentional trigger-failure rollback test.
   user_id := '00000000-0000-0000-0000-000000000006';
@@ -382,21 +382,44 @@ BEGIN
     RAISE EXCEPTION 'Idempotent retry created duplicate financial records';
   END IF;
 
-  IF has_function_privilege('anon', 'public.send_gift(uuid,uuid,text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Anonymous role can execute send_gift';
+  IF has_function_privilege('anon', 'public.send_gift(uuid,uuid,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.purchase_gift_inventory(uuid,integer,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Anonymous role can execute a gift RPC';
   END IF;
 
-  IF NOT has_function_privilege('authenticated', 'public.send_gift(uuid,uuid,text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Authenticated role cannot execute send_gift';
+  IF NOT has_function_privilege('authenticated', 'public.send_gift(uuid,uuid,text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.purchase_gift_inventory(uuid,integer,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute the intended public gift RPCs';
   END IF;
 
-  IF has_function_privilege('authenticated', 'private.settle_gift(uuid,uuid,uuid,text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Authenticated role can execute the private settlement function';
+  IF has_function_privilege('authenticated', 'private.ensure_member_wallet_account(uuid,text,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.purchase_gift_inventory(uuid,uuid,integer,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.settle_gift(uuid,uuid,uuid,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.apply_deferred_referral_reward()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.record_gift_inventory_funding_lot()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.assert_wallet_transaction_balanced()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.require_draft_wallet_transaction()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.reject_wallet_transaction_mutation()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.reject_wallet_ledger_mutation()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.reject_gift_catalog_value_change()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.reject_referral_attribution_mutation()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'private.reject_referral_reward_mutation()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Authenticated role can execute a private financial function';
   END IF;
 
-  IF has_table_privilege('authenticated', 'private.wallet_ledger_entries', 'SELECT')
-     OR has_table_privilege('authenticated', 'private.wallet_ledger_entries', 'INSERT') THEN
-    RAISE EXCEPTION 'Authenticated role has direct ledger table access';
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY[
+      'private.wallet_accounts','private.wallet_transactions','private.wallet_ledger_entries',
+      'private.gift_catalog','private.member_gift_inventory','private.gift_inventory_purchases',
+      'private.gift_transactions','private.referral_codes','private.referral_attributions',
+      'private.referral_rewards','private.gift_inventory_funding_lots'
+    ]) AS t(table_name)
+    CROSS JOIN unnest(ARRAY['anon','authenticated']) AS r(role_name)
+    CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS p(privilege_name)
+    WHERE has_table_privilege(r.role_name, t.table_name, p.privilege_name)
+  ) THEN
+    RAISE EXCEPTION 'A client role has direct access to a private financial table';
   END IF;
 END;
 $$;
