@@ -1,5 +1,5 @@
 -- BaddieLink gift catalog, inventory and atomic settlement
--- REVIEW PROPOSAL ONLY. Depends on supabase/proposals/BLC_LEDGER_FOUNDATION.sql.
+-- REVIEW PROPOSAL ONLY. Depends on BLC_LEDGER_FOUNDATION.sql and BLC_REFERRAL_REWARDS.sql.
 -- Intentionally outside supabase/migrations. Do not execute against production.
 -- All money and credits are integer minor units (XOF and whole BLC).
 
@@ -453,11 +453,10 @@ REVOKE ALL ON FUNCTION private.settle_gift(uuid, uuid, uuid, text) FROM PUBLIC, 
 COMMIT;
 
 -- Required integration before promotion:
--- 1. Add public SECURITY DEFINER wrappers that derive sender/buyer from auth.uid(),
---    verify email confirmation + adult declaration + non-restricted account,
---    verify recipient eligibility and block state, and grant EXECUTE only to
---    authenticated. Never accept an arbitrary sender id from the browser.
+-- 1. Apply proposal dependencies in order: ledger, gift tables/functions,
+--    referral tables, then authenticated RPC wrappers. PL/pgSQL settlement
+--    references referral tables at runtime, after all proposal objects exist.
 -- 2. Define refund/chargeback treatment for already-sent gifts before payments.
 -- 3. Add catalog read API with only active public gift fields.
 -- 4. Add concurrency, duplicate-request, insufficient-balance, self-gift,
---    blocked-user, rounding, rollback and ledger-reconciliation tests.
+--    blocked-user, referral-rounding, rollback and ledger-reconciliation tests.
