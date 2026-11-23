@@ -14,7 +14,7 @@ CREATE TABLE private.gift_catalog (
   display_name text NOT NULL,
   description text,
   price_blc bigint NOT NULL CHECK (price_blc > 0),
-  face_value_xof bigint NOT NULL CHECK (face_value_xof > 0),
+  face_value_xof bigint NOT NULL CHECK (face_value_xof >= 2),
   asset_key text NOT NULL,
   is_active boolean NOT NULL DEFAULT false,
   sort_order integer NOT NULL DEFAULT 0,
@@ -156,16 +156,24 @@ BEGIN
 
   PERFORM pg_advisory_xact_lock(hashtextextended(target_idempotency_key, 0));
 
-  SELECT wallet_transaction_id INTO existing_transaction_id
-  FROM private.gift_inventory_purchases
-  WHERE buyer_user_id = target_user_id
-    AND wallet_transaction_id IN (
-      SELECT id FROM private.wallet_transactions
-      WHERE idempotency_key = target_idempotency_key
-    );
+  SELECT p.wallet_transaction_id
+    INTO existing_transaction_id
+  FROM private.gift_inventory_purchases p
+  JOIN private.wallet_transactions t ON t.id = p.wallet_transaction_id
+  WHERE t.idempotency_key = target_idempotency_key;
 
   IF existing_transaction_id IS NOT NULL THEN
-    RETURN existing_transaction_id;
+    IF EXISTS (
+      SELECT 1
+      FROM private.gift_inventory_purchases p
+      WHERE p.wallet_transaction_id = existing_transaction_id
+        AND p.buyer_user_id = target_user_id
+        AND p.gift_id = target_gift_id
+        AND p.quantity = target_quantity
+    ) THEN
+      RETURN existing_transaction_id;
+    END IF;
+    RAISE EXCEPTION 'Idempotency key already used for another purchase';
   END IF;
 
   SELECT * INTO gift_row
