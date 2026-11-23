@@ -35,7 +35,7 @@ These are logical account classes. Physical schema and posting model must be fin
 | wallet_ledger_entries | Immutable journal | Append-only; signed integer amount; account/unit consistency; transaction and idempotency references |
 | gift_catalog | Server-managed gift SKU | Price in integer XOF; active flag; no client-controlled pricing |
 | member_gift_inventory | Per-member SKU quantity | Non-negative integer; atomic decrement; unique member + SKU |
-| gift_transactions | Gift delivery and split record | Gross equals recipient allocation + platform allocation; one idempotent transaction |
+| gift_transactions | Gift delivery and split record | Gross equals recipient allocation + referral allocation + retained platform allocation; one idempotent transaction |
 | payment_intents | Provider purchase lifecycle | Unique internal reference; server-verified amount/currency/status |
 | payment_events | Provider callback deduplication | Unique provider event ID; signature/verification metadata; replay-safe |
 | referral_attributions | Referrer relationship | One immutable eligible referrer per referred account; no self-referral |
@@ -57,6 +57,7 @@ These are logical account classes. Physical schema and posting model must be fin
 - Release a referral reward only when a referred member sends a gift. Calculate 5% only on the purchased-BLC-funded portion; referral-funded BLC never qualifies.
 - Reclassify the reward from the gift's already-earned platform commission in the same balanced wallet transaction. A fully purchased-BLC-funded gift leaves 25% with the platform; a mixed-funded gift leaves the balance of its 30% share after the reward.
 - Payment confirmation must be server-to-server verified. Browser redirects and client claims are not proof of payment.
+- `purchased_blc` may be credited only by a server-side `purchase_credit` posting after provider verification. Manual adjustments, promotional credits and referral credits must never be classified as purchased BLC.
 - Duplicate payment events and duplicate gift requests must return the original outcome without duplicate credits or inventory consumption.
 - Refunds and chargebacks use compensating entries and preserve the original transaction history.
 - No direct member-to-member BLC transfer, no purchased-BLC cash-out, no gift resale, and no referral cash-out at initial launch.
