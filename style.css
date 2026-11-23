@@ -242,3 +242,127 @@ body:has(#app-shell:not(.hidden)) > .topbar {
     margin-top: 14px;
   }
 }
+
+
+/* Profile page: remove nested generic cards and use a clean editorial layout. */
+#view-profile .profile-page {
+  max-width: 920px;
+}
+
+#view-profile .profile-overview {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 4px 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+#view-profile .profile-avatar {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  font-size: 25px;
+}
+
+#view-profile .profile-heading-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+#view-profile .profile-heading-copy h2 {
+  font-size: 22px;
+  margin: 0 0 5px;
+}
+
+#view-profile .profile-heading-copy .muted {
+  margin: 0;
+  line-height: 1.5;
+}
+
+#view-profile .reputation-line {
+  margin-top: 8px;
+  color: #f1c4d2;
+  font-size: 11px;
+}
+
+#view-profile .profile-overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+#view-profile .profile-overview-actions .button {
+  min-height: 40px;
+}
+
+#view-profile .profile-section {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+#view-profile .profile-section h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+#view-profile .profile-section p {
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 6px 0 0;
+}
+
+#view-profile .profile-section .profile-detail {
+  color: #c8bdc8;
+  font-size: 11px;
+}
+
+#view-profile #my-events-list {
+  padding-top: 2px;
+}
+
+@media (max-width: 650px) {
+  #view-profile .profile-overview {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 20px;
+  }
+
+  #view-profile .profile-avatar {
+    width: 64px;
+    height: 64px;
+    font-size: 22px;
+  }
+
+  #view-profile .profile-heading-copy h2 {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  #view-profile .profile-heading-copy .muted {
+    font-size: 11px;
+  }
+
+  #view-profile .reputation-line {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  #view-profile .profile-overview-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #view-profile .profile-overview-actions .button {
+    min-height: 42px;
+    padding: 10px 8px;
+  }
+
+  #view-profile .profile-section {
+    padding: 18px 0;
+  }
+}
