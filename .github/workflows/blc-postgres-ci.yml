@@ -1,0 +1,64 @@
+name: BLC PostgreSQL CI
+
+on:
+  pull_request:
+    paths:
+      - "supabase/proposals/**"
+      - ".github/workflows/blc-postgres-ci.yml"
+  push:
+    branches:
+      - "feat/blc-deferred-referral-rewards-clean"
+    paths:
+      - "supabase/proposals/**"
+      - ".github/workflows/blc-postgres-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres:
+    name: PostgreSQL 17 schema and accounting tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: baddielink_blc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d baddielink_blc_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: baddielink_blc_test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Bootstrap minimal Supabase-compatible test objects
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/bootstrap.sql
+
+      - name: Apply BLC proposal SQL in dependency order
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_LEDGER_FOUNDATION.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_GIFTS_AND_SETTLEMENT.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_REWARDS.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_PROVENANCE.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_GIFT_RPC_WRAPPERS.sql
+
+      - name: Run BLC accounting, idempotency and access tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
