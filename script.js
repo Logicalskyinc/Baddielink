@@ -156,6 +156,30 @@
     toast("L’accès à BaddieLink est réservé aux personnes majeures.");
   });
 
-  window.BaddieLinkUI = Object.freeze({ showAuth, showWelcome, showView, toast });
+  function completeForm(form, message) {
+    if (!form || !form.parentElement) return;
+    const notice = document.createElement("div");
+    notice.className = "form-completion";
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+
+    const copy = document.createElement("p");
+    copy.textContent = message;
+    const reopen = document.createElement("button");
+    reopen.type = "button";
+    reopen.className = "button button-outline";
+    reopen.textContent = "Ouvrir à nouveau";
+    reopen.addEventListener("click", () => {
+      notice.remove();
+      form.classList.remove("hidden");
+      form.querySelector("input:not([type=hidden]):not(:disabled), textarea:not(:disabled), select:not(:disabled)")?.focus();
+    });
+
+    notice.append(copy, reopen);
+    form.classList.add("hidden");
+    form.insertAdjacentElement("afterend", notice);
+  }
+
+  window.BaddieLinkUI = Object.freeze({ showAuth, showWelcome, showView, toast, completeForm });
   showAgeGate();
 })();
