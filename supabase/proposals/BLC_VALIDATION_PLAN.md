@@ -7,9 +7,10 @@ Status: design-stage test plan. No proposal SQL in this directory has been appli
 1. `BLC_LEDGER_FOUNDATION.sql`
 2. `BLC_GIFTS_AND_SETTLEMENT.sql`
 3. `BLC_REFERRAL_REWARDS.sql`
-4. `BLC_GIFT_RPC_WRAPPERS.sql`
+4. `BLC_REFERRAL_PROVENANCE.sql`
+5. `BLC_GIFT_RPC_WRAPPERS.sql`
 
-The gift settlement PL/pgSQL function resolves referral tables when invoked, so the referral proposal must be installed before any gift-send call is allowed.
+The deferred-referral provenance triggers require the gift tables, referral tables and ledger foundation. They must all be installed before any gift inventory purchase or gift-send call is allowed.
 
 ## Ledger invariants
 
@@ -44,26 +45,40 @@ The gift settlement PL/pgSQL function resolves referral tables when invoked, so 
 - Concurrent sends cannot consume the same final inventory item twice.
 - Any failure rolls back inventory, gift record, ledger entries and referral reward together.
 
-## Split and referral tests
+## Split and deferred referral tests
 
-For an eligible gift with a referred sender:
+For every gift:
 - Recipient receives 70% of face value in XOF earnings.
-- Referrer receives floor(5% of face value) whole BLC.
-- Platform receives the remaining XOF share, normally 25%.
-- Referral funding is debited from the platform's existing 30% share.
-- XOF entries balance to zero; BLC entries balance to zero.
+- Platform initially recognizes 30% of face value in XOF revenue.
+- Inventory provenance is consumed FIFO and exactly one inventory unit is decremented.
+- Gift transaction XOF and BLC entries balance independently.
 
-For a gift without an eligible referrer:
-- Recipient receives 70%.
-- Platform receives 30%.
+For a referred member sending a gift from fully purchased-BLC-funded inventory:
+- Referrer receives floor(5% of the eligible purchased-BLC-funded gift value) whole BLC.
+- The reward is reclassified from the already-earned 30% platform commission.
+- Platform retains the remainder of its 30% share.
+- Reward ledger entries are part of the same wallet transaction as gift settlement.
+
+For a referred member sending a gift from fully referral-BLC-funded inventory:
 - No referral reward is created.
+- Platform retains the full 30% commission.
+
+For mixed-funded inventory:
+- Only the purchased-BLC-funded portion qualifies.
+- Referral-funded BLC never creates a second-generation referral reward.
+- FIFO lot consumption and integer remainder allocation preserve exact unit value and batch totals.
 
 Also test:
-- A referral attribution is unique and immutable.
-- Self-referral is rejected.
+- An inventory purchase creates a funding lot from its ledger entries, not caller input.
+- Funding lots reconcile purchased plus referral BLC to the original purchase quantity and price.
+- Missing or inconsistent provenance fails the gift send atomically.
+- Self-referral is rejected and attribution is unique and immutable.
 - Referrer must remain email-confirmed, adult-declared and not restricted/removed.
-- Reward rounding below one BLC results in zero reward and the unallocated remainder stays with the platform.
-- Referral rewards cannot be withdrawn or transferred as cash.
+- Reward rounding below one BLC results in no reward; platform retains that amount.
+- Concurrent sends cannot consume the same funding lot unit twice.
+- Duplicate gift requests do not create duplicate rewards.
+- Refund/chargeback and compensating-ledger treatment is designed before real-money top-ups are enabled.
+- Referral BLC cannot be withdrawn or transferred as cash.
 
 ## Security tests
 
