@@ -175,17 +175,17 @@ BEGIN
 
     SELECT id INTO platform_revenue_id
     FROM private.wallet_accounts
-    WHERE account_code = 'system:xof-platform-revenue'
+    WHERE account_code = 'system:xof-platform-revenue';
 
 
     SELECT id INTO referral_funding_id
     FROM private.wallet_accounts
-    WHERE account_code = 'system:xof-referral-funding'
+    WHERE account_code = 'system:xof-referral-funding';
 
 
     SELECT id INTO issuance_id
     FROM private.wallet_accounts
-    WHERE account_code = 'system:blc-issuance'
+    WHERE account_code = 'system:blc-issuance';
 
 
     IF referrer_wallet_id IS NULL OR platform_revenue_id IS NULL
