@@ -84,7 +84,7 @@ COMMIT;
 -- Seed mixed-funding and referral-only balances. These are isolated test
 -- credits representing already-earned referral BLC; each unit is balanced.
 BEGIN;
-DO $
+DO $ci$
 DECLARE
   user_id uuid;
   purchased_account uuid;
@@ -93,8 +93,6 @@ DECLARE
   revenue_account uuid;
   referral_funding_account uuid;
   tx_id uuid;
-  purchased_credit bigint;
-  referral_credit bigint;
 BEGIN
   SELECT id INTO issuance_account FROM private.wallet_accounts
   WHERE account_code = 'system:blc-issuance';
@@ -139,7 +137,7 @@ BEGIN
     (tx_id, purchased_account, 'BLC', 100),
     (tx_id, issuance_account, 'BLC', -100);
 END;
-$;
+$ci$;
 COMMIT;
 
 -- Purchase one gift each with mixed, referral-only, and rollback-test funding.
@@ -268,7 +266,7 @@ END;
 $$;
 
 -- Mixed funding must reward only the purchased 60% of the gift value.
-DO $
+DO $ci$
 DECLARE
   mixed_row private.gift_transactions%ROWTYPE;
   mixed_reward private.referral_rewards%ROWTYPE;
@@ -316,12 +314,12 @@ BEGIN
     RAISE EXCEPTION 'Unexpected gift/reward record counts after funding cases';
   END IF;
 END;
-$;
+$ci$;
 
 -- Force a failure inside the AFTER INSERT provenance trigger, after settlement
 -- has decremented inventory and written draft ledger rows. The statement must
 -- roll back every write, including the inventory decrement.
-DO $
+DO $ci$
 DECLARE
   before_inventory bigint;
   before_transactions bigint;
@@ -362,7 +360,7 @@ BEGIN
     RAISE EXCEPTION 'Failed gift send left partial financial records';
   END IF;
 END;
-$;
+$ci$;
 
 -- A retry with the same key must return the original transaction and must not
 -- create a second gift or referral reward.
