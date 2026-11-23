@@ -283,23 +283,23 @@ BEGIN
 
   SELECT id INTO issuance_account_id
   FROM private.wallet_accounts
-  WHERE account_code = 'system:blc-issuance'
+  WHERE account_code = 'system:blc-issuance';
 
 
   SELECT id INTO clearing_account_id
   FROM private.wallet_accounts
-  WHERE account_code = 'system:xof-gift-clearing'
+  WHERE account_code = 'system:xof-gift-clearing';
 
 
   SELECT id INTO inventory_liability_account_id
   FROM private.wallet_accounts
-  WHERE account_code = 'system:xof-gift-inventory-liability'
+  WHERE account_code = 'system:xof-gift-inventory-liability';
 
 
   IF referral_spend > 0 THEN
     SELECT id INTO referral_funding_account_id
     FROM private.wallet_accounts
-    WHERE account_code = 'system:xof-referral-funding'
+    WHERE account_code = 'system:xof-referral-funding';
 
   END IF;
 
@@ -452,12 +452,12 @@ BEGIN
 
   SELECT id INTO revenue_account_id
   FROM private.wallet_accounts
-  WHERE account_code = 'system:xof-platform-revenue'
+  WHERE account_code = 'system:xof-platform-revenue';
 
 
   SELECT id INTO inventory_liability_account_id
   FROM private.wallet_accounts
-  WHERE account_code = 'system:xof-gift-inventory-liability'
+  WHERE account_code = 'system:xof-gift-inventory-liability';
 
 
   IF revenue_account_id IS NULL OR inventory_liability_account_id IS NULL THEN
