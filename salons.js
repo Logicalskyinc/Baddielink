@@ -252,6 +252,7 @@
       form.elements.visibility.value = "public";
       form.elements.join_policy.value = "open";
       selectedSpaceId = data.id;
+      window.BaddieLinkUI?.completeForm(form, "Salon créé. Vous en êtes le propriétaire.");
       toast("Salon créé. Vous en êtes le propriétaire.");
       await load();
     } catch (error) {
