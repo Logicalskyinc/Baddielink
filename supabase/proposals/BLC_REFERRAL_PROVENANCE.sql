@@ -176,17 +176,17 @@ BEGIN
     SELECT id INTO platform_revenue_id
     FROM private.wallet_accounts
     WHERE account_code = 'system:xof-platform-revenue'
-    FOR UPDATE;
+
 
     SELECT id INTO referral_funding_id
     FROM private.wallet_accounts
     WHERE account_code = 'system:xof-referral-funding'
-    FOR UPDATE;
+
 
     SELECT id INTO issuance_id
     FROM private.wallet_accounts
     WHERE account_code = 'system:blc-issuance'
-    FOR UPDATE;
+
 
     IF referrer_wallet_id IS NULL OR platform_revenue_id IS NULL
        OR referral_funding_id IS NULL OR issuance_id IS NULL THEN
@@ -230,6 +230,12 @@ REVOKE ALL ON FUNCTION private.apply_deferred_referral_reward()
   FROM PUBLIC, anon, authenticated;
 
 COMMIT;
+
+-- Locking strategy: the funding-lot row is the serialization point for
+-- inventory provenance consumption. Member wallet rows are locked only when
+-- debiting spendable balances; credit-only wallet identity lookups and static
+-- platform account identity lookups are intentionally unlocked. This avoids
+-- cross-path lock inversions while preserving spend and lot serialization.
 
 -- Accounting invariants:
 -- 1. Gift inventory funding lots reconcile to the exact BLC debited at purchase.
