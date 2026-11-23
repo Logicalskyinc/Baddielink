@@ -66,6 +66,31 @@ CREATE INDEX gift_transactions_recipient_history_idx
 CREATE INDEX gift_transactions_sender_history_idx
   ON private.gift_transactions(sender_user_id, created_at DESC);
 
+-- Gift pricing is immutable once a catalog item exists. To change price or
+-- face value, create a new gift_catalog row so already-purchased inventory
+-- always settles at the exact value that was reserved when it was purchased.
+CREATE OR REPLACE FUNCTION private.reject_gift_catalog_value_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+BEGIN
+  IF NEW.price_blc IS DISTINCT FROM OLD.price_blc
+     OR NEW.face_value_xof IS DISTINCT FROM OLD.face_value_xof
+     OR NEW.gift_code IS DISTINCT FROM OLD.gift_code THEN
+    RAISE EXCEPTION 'Gift code and financial values are immutable; create a new catalog item';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER gift_catalog_financial_values_immutable
+  BEFORE UPDATE ON private.gift_catalog
+  FOR EACH ROW EXECUTE FUNCTION private.reject_gift_catalog_value_change();
+
+REVOKE ALL ON FUNCTION private.reject_gift_catalog_value_change() FROM PUBLIC, anon, authenticated;
+
+
 ALTER TABLE private.gift_catalog ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.member_gift_inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.gift_inventory_purchases ENABLE ROW LEVEL SECURITY;
@@ -386,9 +411,12 @@ BEGIN
     RAISE EXCEPTION 'Idempotency key already used for another operation';
   END IF;
 
+  -- Existing inventory remains sendable after a catalog item is retired.
+  -- Deactivation only prevents new purchases; immutable price fields preserve
+  -- the original XOF backing value.
   SELECT * INTO gift_row
   FROM private.gift_catalog
-  WHERE id = target_gift_id AND is_active
+  WHERE id = target_gift_id
   FOR SHARE;
 
   IF NOT FOUND THEN
