@@ -2,7 +2,7 @@
 
 **Status:** Design only; not applied to Supabase.  
 **Reviewed against:** Live BaddieLink schema and current RLS catalog (read-only inspection).  
-**Target:** Existing repository feature branch `feat/mobile-profile-header-polish`.
+**Target:** BLC feature branch (isolated proposal; not deployed).
 
 ## Existing database facts
 
