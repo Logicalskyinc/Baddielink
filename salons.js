@@ -339,6 +339,8 @@
       toast("Membre ajouté au salon.");
       await load();
       await selectSpace(space.id);
+      const refreshedInviteForm = document.querySelector("#salon-detail .salon-invite-form");
+      window.BaddieLinkUI?.completeForm(refreshedInviteForm, "Membre ajouté au salon.");
     } catch (error) {
       console.error("Salon invite failed:", error);
       toast(error.message || "Impossible d’inviter ce membre.", true);
