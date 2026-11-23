@@ -14,7 +14,7 @@ Approved product rules:
 
 - Conversion reference: **1 FCFA = 1 BLC**.
 - Gift split: **70% recipient share / 30% platform share**.
-- Referral commission: **5% of eligible purchases**, funded from the existing 30% platform commission. The remaining 25% is retained by BaddieLink.
+- Referral commission: **5% of the purchased-BLC-funded portion of eligible gift value**, released only when the referred member sends the gift. It is reclassified from the already-earned 30% platform commission; referral-funded BLC does not qualify. For a fully purchased-BLC-funded gift, BaddieLink retains 25% and the referrer receives 5%.
 - Referral rewards at initial launch are **BLC-only**. No Mobile Money or bank withdrawal for referral commissions at launch.
 - Minimum future CFA earnings withdrawal threshold: **2,500 FCFA**.
 - No direct user-to-user BLC transfers.
@@ -55,11 +55,12 @@ Do not combine these balances into one generic wallet.
 
 Referral rewards are a separate entitlement/ledger category, not CFA earnings.
 
-- Credit 5% of eligible net purchase value in BLC.
-- Fund the reward from the 30% platform share; do not add an extra 5% platform liability.
-- Referral BLC is not cash-withdrawable.
-- Only finalized, eligible purchases qualify.
-- Exclude refunded, charged-back, fraudulent, test, or otherwise ineligible purchases.
+- Credit 5% of the purchased-BLC-funded portion of a referred member's gift value in BLC.
+- Defer the reward until that member sends the gift and the platform has earned its 30% commission.
+- Fund the reward by reclassifying 5% of the eligible portion from platform revenue into referral funding; do not create an unfunded liability at top-up time.
+- Track purchased-BLC and referral-BLC provenance through gift inventory purchases and FIFO consumption.
+- Referral-funded BLC never generates another referral reward.
+- Referral BLC is not cash-withdrawable. Refunds, chargebacks, fraud and reversals require compensating ledger treatment.
 - Enforce one eligible referrer per referred account and prevent self-referrals and referral loops.
 
 ## 3. Ledger-first accounting
@@ -162,7 +163,7 @@ Before implementing these entities, inspect the live schema and recover the miss
 3. Implement schema and server-side ledger operations in a safe isolated database environment. If no free isolated environment exists, keep database changes as reviewed migration files and do not apply them to the shared production project.
 4. Add read-only wallet summary/history queries.
 5. Implement gift inventory and atomic gift delivery.
-6. Implement referral attribution and BLC-only referral credits.
+6. Implement immutable referral attribution and BLC-only deferred rewards tied to purchased-BLC-funded gift inventory consumption.
 7. Evaluate payment providers and legal/compliance requirements separately.
 8. Only after explicit approval, implement real payment/payout integration and controlled launch.
 
