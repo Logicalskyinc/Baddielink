@@ -182,3 +182,63 @@
 .salon-invite-form .button{white-space:nowrap}
 @media(max-width:760px){.salon-layout{grid-template-columns:1fr}.salon-create-card{order:-1}}
 @media(max-width:650px){.salon-toolbar{grid-template-columns:1fr 1fr}.salon-toolbar input{grid-column:1/-1}.salon-toolbar button{min-width:0}.salon-list{grid-template-columns:1fr}.salon-member-row{align-items:flex-start;flex-direction:column}.salon-invite-form{grid-template-columns:1fr}}
+
+
+/* Authenticated workspace and mobile profile refinement */
+/* The public landing header duplicates the member-area branding after login. */
+body:has(#app-shell:not(.hidden)) > .topbar {
+  display: none;
+}
+
+@media (max-width: 650px) {
+  .mobile-head {
+    margin-bottom: 20px;
+  }
+
+  .workspace-head {
+    margin-bottom: 20px;
+  }
+
+  #view-profile .profile-settings-card {
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #25232d, #1d1b25);
+  }
+
+  #view-profile .profile-avatar {
+    width: 64px;
+    height: 64px;
+    font-size: 22px;
+  }
+
+  #view-profile .profile-heading-copy h2 {
+    font-size: 18px;
+    line-height: 1.25;
+  }
+
+  #view-profile .profile-heading-copy .muted {
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  #view-profile .reputation-line {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  #view-profile .settings-block {
+    margin-top: 14px;
+    padding: 16px;
+  }
+
+  #view-profile .settings-block h3 {
+    margin-bottom: 8px;
+  }
+
+  #view-profile .settings-block .button {
+    min-height: 40px;
+    margin-top: 14px;
+  }
+}
