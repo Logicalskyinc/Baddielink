@@ -138,15 +138,18 @@ AS $function$
 DECLARE
   gift_row private.gift_catalog%ROWTYPE;
   purchased_account_id uuid;
+  referral_account_id uuid;
   issuance_account_id uuid;
   clearing_account_id uuid;
   inventory_liability_account_id uuid;
-  current_balance bigint;
+  purchased_balance bigint;
+  referral_balance bigint;
+  referral_spend bigint;
+  purchased_spend bigint;
   total_blc bigint;
   total_xof bigint;
   transaction_id uuid;
   existing_transaction_id uuid;
-  inventory_row private.member_gift_inventory%ROWTYPE;
 BEGIN
   IF target_user_id IS NULL OR target_quantity IS NULL
      OR target_quantity < 1 OR target_quantity > 100
@@ -189,25 +192,60 @@ BEGIN
   total_blc := gift_row.price_blc * target_quantity;
   total_xof := gift_row.face_value_xof * target_quantity;
 
+  -- Referral BLC is spendable only inside BaddieLink. Consume it first;
+  -- it cannot be withdrawn or transferred as cash. Purchased BLC covers any remainder.
+  referral_account_id := private.ensure_member_wallet_account(
+    target_user_id, 'referral_blc', 'BLC'
+  );
+
   SELECT id INTO purchased_account_id
   FROM private.wallet_accounts
   WHERE owner_user_id = target_user_id
     AND account_kind = 'purchased_blc'
-    AND unit = 'BLC'
-    AND NOT is_frozen
-  FOR UPDATE;
+    AND unit = 'BLC';
 
   IF purchased_account_id IS NULL THEN
     RAISE EXCEPTION 'Purchased BLC wallet unavailable';
   END IF;
 
-  SELECT coalesce(sum(amount), 0) INTO current_balance
-  FROM private.wallet_ledger_entries
-  WHERE account_id = purchased_account_id
-    AND unit = 'BLC';
+  -- Lock both accounts in stable ID order to avoid lock-order deadlocks.
+  PERFORM a.id
+  FROM private.wallet_accounts a
+  WHERE a.id IN (purchased_account_id, referral_account_id)
+  ORDER BY a.id
+  FOR UPDATE;
 
-  IF current_balance < total_blc THEN
-    RAISE EXCEPTION 'Insufficient purchased BLC balance';
+  SELECT coalesce(sum(e.amount), 0)
+    INTO referral_balance
+  FROM private.wallet_ledger_entries e
+  WHERE e.account_id = referral_account_id
+    AND e.unit = 'BLC';
+
+  SELECT coalesce(sum(e.amount), 0)
+    INTO purchased_balance
+  FROM private.wallet_ledger_entries e
+  WHERE e.account_id = purchased_account_id
+    AND e.unit = 'BLC';
+
+  referral_spend := least(greatest(referral_balance, 0), total_blc);
+  purchased_spend := total_blc - referral_spend;
+
+  IF purchased_balance < purchased_spend THEN
+    RAISE EXCEPTION 'Insufficient BLC balance';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.wallet_accounts
+    WHERE id = purchased_account_id AND is_frozen
+  ) AND purchased_spend > 0 THEN
+    RAISE EXCEPTION 'Purchased BLC wallet is frozen';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.wallet_accounts
+    WHERE id = referral_account_id AND is_frozen
+  ) AND referral_spend > 0 THEN
+    RAISE EXCEPTION 'Referral BLC wallet is frozen';
   END IF;
 
   SELECT id INTO issuance_account_id
@@ -242,10 +280,19 @@ BEGIN
 
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
   VALUES
-    (transaction_id, purchased_account_id, 'BLC', -total_blc),
     (transaction_id, issuance_account_id, 'BLC', total_blc),
     (transaction_id, clearing_account_id, 'XOF', -total_xof),
     (transaction_id, inventory_liability_account_id, 'XOF', total_xof);
+
+  IF referral_spend > 0 THEN
+    INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+    VALUES (transaction_id, referral_account_id, 'BLC', -referral_spend);
+  END IF;
+
+  IF purchased_spend > 0 THEN
+    INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+    VALUES (transaction_id, purchased_account_id, 'BLC', -purchased_spend);
+  END IF;
 
   INSERT INTO private.gift_inventory_purchases (
     buyer_user_id, gift_id, quantity, unit_price_blc,
