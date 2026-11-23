@@ -1046,6 +1046,7 @@
       feedback.textContent = "Demande envoyée. Elle sera examinée par l’équipe BaddieLink.";
       feedback.classList.remove("hidden");
       form.querySelectorAll("input,select,textarea,button").forEach(el => { el.disabled = true; });
+      window.BaddieLinkUI?.completeForm(form, "Demande envoyée. Elle sera examinée par l’équipe BaddieLink.");
     } catch (error) {
       feedback.textContent = error.code === "23505" ? "Une demande existe déjà pour ce compte." : (error.message || "Impossible d’envoyer la demande.");
       feedback.classList.remove("hidden");
@@ -1100,8 +1101,12 @@
       }
       form.reset();
       form.elements.city.value = "Abidjan";
-      show(payload.status === "published" ? "Événement publié." : "Événement envoyé. Il sera visible après modération.");
+      const successMessage = payload.status === "published"
+        ? "Événement publié."
+        : "Événement envoyé. Il sera visible après modération.";
+      show(successMessage);
       await loadEvents();
+      window.BaddieLinkUI?.completeForm(form, successMessage);
     } catch (error) {
       console.error("BaddieLink event submission failed:", error);
       show(error.message || "L’envoi de l’événement a échoué.", true);
