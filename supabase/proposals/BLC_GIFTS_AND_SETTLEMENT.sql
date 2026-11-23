@@ -141,6 +141,7 @@ DECLARE
   referral_account_id uuid;
   issuance_account_id uuid;
   clearing_account_id uuid;
+  referral_funding_account_id uuid;
   inventory_liability_account_id uuid;
   purchased_balance bigint;
   referral_balance bigint;
@@ -193,7 +194,8 @@ BEGIN
   total_xof := gift_row.face_value_xof * target_quantity;
 
   -- Referral BLC is spendable only inside BaddieLink. Consume it first;
-  -- it cannot be withdrawn or transferred as cash. Purchased BLC covers any remainder.
+  -- it cannot be withdrawn or transferred as cash. Its XOF reserve is consumed
+  -- alongside it from the referral-funding system account. Purchased BLC covers any remainder.
   referral_account_id := private.ensure_member_wallet_account(
     target_user_id, 'referral_blc', 'BLC'
   );
@@ -263,8 +265,16 @@ BEGIN
   WHERE account_code = 'system:xof-gift-inventory-liability'
   FOR UPDATE;
 
+  IF referral_spend > 0 THEN
+    SELECT id INTO referral_funding_account_id
+    FROM private.wallet_accounts
+    WHERE account_code = 'system:xof-referral-funding'
+    FOR UPDATE;
+  END IF;
+
   IF issuance_account_id IS NULL OR clearing_account_id IS NULL
-     OR inventory_liability_account_id IS NULL THEN
+     OR inventory_liability_account_id IS NULL
+     OR (referral_spend > 0 AND referral_funding_account_id IS NULL) THEN
     RAISE EXCEPTION 'Required platform ledger accounts are not configured';
   END IF;
 
@@ -281,10 +291,16 @@ BEGIN
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
   VALUES
     (transaction_id, issuance_account_id, 'BLC', total_blc),
-    (transaction_id, clearing_account_id, 'XOF', -total_xof),
     (transaction_id, inventory_liability_account_id, 'XOF', total_xof);
 
+  IF purchased_spend > 0 THEN
+    INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+    VALUES (transaction_id, clearing_account_id, 'XOF', -purchased_spend);
+  END IF;
+
   IF referral_spend > 0 THEN
+    INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+    VALUES (transaction_id, referral_funding_account_id, 'XOF', -referral_spend);
     INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
     VALUES (transaction_id, referral_account_id, 'BLC', -referral_spend);
   END IF;
