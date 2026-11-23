@@ -121,8 +121,8 @@ BEGIN
     AND gift_id = NEW.gift_id
     AND quantity_remaining > 0
   ORDER BY created_at, id
-  FOR UPDATE
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF lot_id IS NULL OR lot_quantity < 1 THEN
     RAISE EXCEPTION 'Gift inventory funding provenance is missing';
