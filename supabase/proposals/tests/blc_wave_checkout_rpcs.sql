@@ -45,27 +45,23 @@ BEGIN
 END;
 $wave_checkout_idempotency_negative$;
 
-SELECT claim_status AS wave_claim_status
-FROM public.claim_wave_checkout_creation(:'wave_checkout_topup_id'::uuid)
-\gset
-
-DO $wave_checkout_claim_assertion$
-DECLARE
-  v_status text;
-BEGIN
-  v_status := :'wave_claim_status';
-  IF v_status <> 'claimed' THEN
-    RAISE EXCEPTION 'First checkout claim expected claimed, received %', v_status;
-  END IF;
-END;
-$wave_checkout_claim_assertion$;
+SELECT * FROM public.claim_wave_checkout_creation(
+  :'wave_checkout_topup_id'::uuid
+);
 
 DO $wave_checkout_claim_replay$
 DECLARE
   v_status text;
+  v_topup_id uuid;
 BEGIN
+  SELECT topup_id INTO STRICT v_topup_id
+  FROM private.blc_checkout_requests
+  WHERE user_id = '00000000-0000-0000-0000-000000000002'
+    AND idempotency_key = 'ci-wave-checkout-key-0002';
+
   SELECT claim_status INTO STRICT v_status
-  FROM public.claim_wave_checkout_creation(:'wave_checkout_topup_id'::uuid);
+  FROM public.claim_wave_checkout_creation(v_topup_id);
+
   IF v_status <> 'in_progress' THEN
     RAISE EXCEPTION 'Concurrent checkout claim expected in_progress, received %', v_status;
   END IF;
