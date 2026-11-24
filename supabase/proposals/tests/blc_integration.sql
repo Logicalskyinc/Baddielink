@@ -815,11 +815,16 @@ $fifo_assert$;
 SELECT 'BLC funding boundary integration tests passed' AS result;
 
 
+-- Dedicated referral-code owner for lifecycle API tests.
+INSERT INTO auth.users (id, email, email_confirmed_at)
+VALUES ('00000000-0000-0000-0000-000000000012',
+        'lifecycle-code-owner@example.test', now());
+
 -- Referral lifecycle API: authenticated members can retrieve one stable code,
 -- while the database owns the code identity and owner binding.
 BEGIN;
 SELECT set_config('request.jwt.claim.sub',
-  '00000000-0000-0000-0000-000000000009', true);
+  '00000000-0000-0000-0000-000000000012', true);
 SET LOCAL ROLE authenticated;
 SELECT public.get_my_referral_code();
 SELECT public.get_my_referral_code();
@@ -831,14 +836,14 @@ DECLARE generated_code text;
 BEGIN
   SELECT referral_code INTO STRICT generated_code
   FROM private.referral_codes
-  WHERE owner_user_id = '00000000-0000-0000-0000-000000000009';
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
 
   IF generated_code !~ '^[A-F0-9]{24}$' THEN
     RAISE EXCEPTION 'Generated referral code format is invalid: %', generated_code;
   END IF;
 
   IF (SELECT count(*) FROM private.referral_codes
-      WHERE owner_user_id = '00000000-0000-0000-0000-000000000009') <> 1 THEN
+      WHERE owner_user_id = '00000000-0000-0000-0000-000000000012') <> 1 THEN
     RAISE EXCEPTION 'Repeated code retrieval created duplicate referral codes';
   END IF;
 END;
@@ -894,7 +899,7 @@ $invalid_signup_assert$;
 -- Deactivation is owner-scoped, idempotent and irreversible.
 BEGIN;
 SELECT set_config('request.jwt.claim.sub',
-  '00000000-0000-0000-0000-000000000009', true);
+  '00000000-0000-0000-0000-000000000012', true);
 SET LOCAL ROLE authenticated;
 SELECT public.deactivate_my_referral_code();
 SELECT public.deactivate_my_referral_code();
@@ -905,7 +910,7 @@ DO $referral_deactivation_assert$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM private.referral_codes
-    WHERE owner_user_id = '00000000-0000-0000-0000-000000000009'
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012'
       AND is_active = true
   ) THEN
     RAISE EXCEPTION 'Referral code remained active after deactivation';
@@ -914,7 +919,7 @@ BEGIN
   BEGIN
     UPDATE private.referral_codes
     SET is_active = true
-    WHERE owner_user_id = '00000000-0000-0000-0000-000000000009';
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
     RAISE EXCEPTION 'Reactivation of a deactivated referral code was accepted';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM NOT LIKE 'Referral-code identity is immutable%' THEN
