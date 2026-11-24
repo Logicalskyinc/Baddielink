@@ -198,4 +198,156 @@ BEGIN
 END;
 $wave_inventory_consumption$;
 
+
+-- A single inventory purchase can draw from multiple independent Wave top-ups.
+-- The source ledger must preserve FIFO allocation across both top-up lots.
+DO $wave_multiple_topup_sources$
+DECLARE
+  v_user uuid := '00000000-0000-0000-0000-000000000014';
+  v_provider uuid;
+  v_gift_id uuid;
+  v_price bigint;
+  v_first_amount bigint;
+  v_second_amount bigint;
+  v_wallet uuid;
+  v_issuance uuid;
+  v_tx_one uuid;
+  v_tx_two uuid;
+  v_topup_one uuid;
+  v_topup_two uuid;
+  v_lot_one uuid;
+  v_lot_two uuid;
+  v_purchase_tx uuid;
+  v_purchase_id uuid;
+  v_first_allocation bigint;
+  v_second_allocation bigint;
+  v_child_count bigint;
+  v_child_total bigint;
+  v_first_remaining bigint;
+  v_second_remaining bigint;
+BEGIN
+  SELECT id INTO STRICT v_provider
+  FROM private.payment_provider_accounts
+  WHERE provider_code = 'wave' AND environment = 'sandbox'
+  ORDER BY created_at, id LIMIT 1;
+
+  INSERT INTO auth.users (id, email, email_confirmed_at)
+  VALUES (v_user, 'wave-multi-source@example.test', now());
+  INSERT INTO public.profiles (id, moderation_status)
+  VALUES (v_user, 'approved');
+  INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at)
+  VALUES (v_user, DATE '1990-01-01', now());
+
+  SELECT id, price_blc INTO STRICT v_gift_id, v_price
+  FROM private.gift_catalog
+  WHERE id = '10000000-0000-0000-0000-000000000001' AND is_active;
+
+  IF v_price < 2 THEN
+    RAISE EXCEPTION 'Fixture gift price must be at least 2 BLC';
+  END IF;
+
+  v_first_amount := greatest(1, v_price / 2);
+  v_second_amount := v_price + 10 - v_first_amount;
+
+  v_wallet := private.ensure_member_wallet_account(v_user, 'purchased_blc', 'BLC');
+  SELECT id INTO STRICT v_issuance
+  FROM private.wallet_accounts WHERE account_code = 'system:blc-issuance';
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-wave-multi-credit-one-014', v_user)
+  RETURNING id INTO v_tx_one;
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES (v_tx_one, v_wallet, 'BLC', v_first_amount),
+         (v_tx_one, v_issuance, 'BLC', -v_first_amount);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id,
+    verified_at, credited_at
+  ) VALUES (
+    v_user, v_provider, v_first_amount, v_first_amount, 1, 1,
+    'credited', 'ci-wave-multi-topup-one-014', v_tx_one, now(), now()
+  ) RETURNING id INTO v_topup_one;
+
+  INSERT INTO private.blc_topup_funding_lots (
+    topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
+    original_amount_blc, remaining_amount_blc, consumed_amount_blc, created_at
+  ) VALUES (
+    v_topup_one, v_user, v_wallet, v_tx_one,
+    v_first_amount, v_first_amount, 0, now() - interval '1 minute'
+  ) RETURNING id INTO v_lot_one;
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-wave-multi-credit-two-014', v_user)
+  RETURNING id INTO v_tx_two;
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES (v_tx_two, v_wallet, 'BLC', v_second_amount),
+         (v_tx_two, v_issuance, 'BLC', -v_second_amount);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id,
+    verified_at, credited_at
+  ) VALUES (
+    v_user, v_provider, v_second_amount, v_second_amount, 1, 1,
+    'credited', 'ci-wave-multi-topup-two-014', v_tx_two, now(), now()
+  ) RETURNING id INTO v_topup_two;
+
+  INSERT INTO private.blc_topup_funding_lots (
+    topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
+    original_amount_blc, remaining_amount_blc, consumed_amount_blc, created_at
+  ) VALUES (
+    v_topup_two, v_user, v_wallet, v_tx_two,
+    v_second_amount, v_second_amount, 0, now()
+  ) RETURNING id INTO v_lot_two;
+
+  v_purchase_tx := private.purchase_gift_inventory(
+    v_user, v_gift_id, 1, 'ci-wave-multi-purchase-014'
+  );
+
+  SELECT id INTO STRICT v_purchase_id
+  FROM private.gift_inventory_purchases
+  WHERE wallet_transaction_id = v_purchase_tx;
+
+  SELECT allocation_amount_blc INTO STRICT v_first_allocation
+  FROM private.blc_topup_lot_allocations
+  WHERE inventory_purchase_id = v_purchase_id AND allocation_sequence = 1;
+
+  SELECT allocation_amount_blc INTO STRICT v_second_allocation
+  FROM private.blc_topup_lot_allocations
+  WHERE inventory_purchase_id = v_purchase_id AND allocation_sequence = 2;
+
+  IF v_first_allocation <> v_first_amount
+     OR v_second_allocation <> v_price - v_first_amount THEN
+    RAISE EXCEPTION
+      'FIFO top-up allocation mismatch: first %, second %, expected first %, second %',
+      v_first_allocation, v_second_allocation, v_first_amount, v_price - v_first_amount;
+  END IF;
+
+  SELECT remaining_amount_blc INTO STRICT v_first_remaining
+  FROM private.blc_topup_funding_lots WHERE id = v_lot_one;
+  SELECT remaining_amount_blc INTO STRICT v_second_remaining
+  FROM private.blc_topup_funding_lots WHERE id = v_lot_two;
+
+  IF v_first_remaining <> 0 OR v_second_remaining <> 10 THEN
+    RAISE EXCEPTION
+      'FIFO top-up lot balances mismatch: first %, second %',
+      v_first_remaining, v_second_remaining;
+  END IF;
+
+  SELECT count(*), coalesce(sum(original_purchased_blc), 0)
+    INTO v_child_count, v_child_total
+  FROM private.gift_inventory_topup_funding_lots
+  WHERE inventory_purchase_id = v_purchase_id;
+
+  IF v_child_count <> 2 OR v_child_total <> v_price THEN
+    RAISE EXCEPTION
+      'Top-up source child lots did not reconcile: count %, total %, expected %',
+      v_child_count, v_child_total, v_price;
+  END IF;
+END;
+$wave_multiple_topup_sources$;
+
 SELECT 'BLC Wave gift inventory provenance tests passed' AS result;
