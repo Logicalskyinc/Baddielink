@@ -73,6 +73,11 @@ jobs:
       - name: Apply referral-code lifecycle proposal
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_LIFECYCLE.sql
 
+      - name: Check member interface JavaScript syntax
+        run: |
+          node --check auth-integration.js
+          node --check script.js
+
       - name: Run BLC integration tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
 
