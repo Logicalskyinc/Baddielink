@@ -423,7 +423,7 @@
     if (profile.moderation_status !== "approved") {
       window.BaddieLinkUI?.toast("Votre profil est en attente de modération. Il ne sera pas visible par les autres membres avant approbation.");
     }
-    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadPeople(true), loadLikes(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
+    await Promise.allSettled([loadProfilePhoto(), loadReputation(), loadReferralDashboard(), loadPeople(true), loadLikes(), loadEvents(), loadMyEvents(), loadOrganizerApplication()]);
     if (isBaddieLinkAdmin && location.hash === "#admin") showAdminConsole();
     else location.hash = "espace";
     const sharedEventId = new URLSearchParams(location.search).get("event");
@@ -469,6 +469,131 @@
     const labels = { beginner: "Débutant", novice: "Novice", intermediate: "Intermédiaire", advanced: "Avancé", expert: "Expert", legend: "Légende" };
     const target = document.querySelector("#profile-reputation");
     if (target) target.textContent = "☆☆☆☆☆ · " + (labels[data?.rank] || "Débutant") + " · " + (data?.score ?? 0) + " points";
+  }
+
+  async function loadReferralDashboard() {
+    const status = document.querySelector("#referral-status");
+    const codePanel = document.querySelector("#referral-code-panel");
+    const createPanel = document.querySelector("#referral-create-panel");
+    const deactivatedPanel = document.querySelector("#referral-deactivated-panel");
+    const metrics = document.querySelector("#referral-metrics");
+    if (!status || !currentUserId) return;
+
+    status.textContent = "Chargement de votre espace de parrainage…";
+    status.classList.remove("error");
+    [codePanel, createPanel, deactivatedPanel].forEach(el => el?.classList.add("hidden"));
+    metrics?.classList.add("hidden");
+
+    const [codeResult, summaryResult] = await Promise.all([
+      client.rpc("get_my_referral_code_status"),
+      client.rpc("get_my_referral_summary")
+    ]);
+    if (codeResult.error || summaryResult.error) {
+      const error = codeResult.error || summaryResult.error;
+      console.error("Referral dashboard load failed:", error);
+      status.textContent = "Votre espace de parrainage n’est pas encore disponible. Réessayez plus tard.";
+      status.classList.add("error");
+      return;
+    }
+
+    const codeRow = Array.isArray(codeResult.data) ? codeResult.data[0] : codeResult.data;
+    const summary = Array.isArray(summaryResult.data) ? summaryResult.data[0] : summaryResult.data;
+    const number = value => Number(value || 0).toLocaleString("fr-FR");
+    document.querySelector("#referral-total").textContent = number(summary?.total_referrals);
+    document.querySelector("#referral-rewarded").textContent = number(summary?.rewarded_referrals);
+    document.querySelector("#referral-pending").textContent = number(summary?.pending_referrals);
+    document.querySelector("#referral-earned").textContent = number(summary?.total_rewards_blc);
+    metrics?.classList.remove("hidden");
+
+    if (!codeRow) {
+      status.textContent = "Aucun code de parrainage pour le moment.";
+      createPanel?.classList.remove("hidden");
+      return;
+    }
+    if (codeRow.is_active !== true) {
+      status.textContent = "Votre code de parrainage est désactivé.";
+      deactivatedPanel?.classList.remove("hidden");
+      return;
+    }
+
+    document.querySelector("#member-referral-code").value = codeRow.referral_code;
+    status.textContent = "Votre code est actif. Partagez-le avec les personnes que vous invitez.";
+    codePanel?.classList.remove("hidden");
+  }
+
+  async function createReferralCode() {
+    const button = document.querySelector("#create-referral-code");
+    const status = document.querySelector("#referral-status");
+    if (!button || !currentUserId) return;
+    button.disabled = true;
+    status.textContent = "Création de votre code sécurisé…";
+    try {
+      const { data, error } = await client.rpc("get_my_referral_code");
+      if (error) throw error;
+      if (!data) throw new Error("Le serveur n’a pas retourné de code.");
+      await loadReferralDashboard();
+    } catch (error) {
+      console.error("Referral code creation failed:", error);
+      status.textContent = error.message || "Impossible de créer votre code.";
+      status.classList.add("error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function copyReferralCode() {
+    const code = document.querySelector("#member-referral-code")?.value;
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      window.BaddieLinkUI?.toast("Code de parrainage copié.");
+    } catch (error) {
+      const input = document.querySelector("#member-referral-code");
+      input?.focus();
+      input?.select();
+      const copied = document.execCommand("copy");
+      window.BaddieLinkUI?.toast(copied ? "Code de parrainage copié." : "Sélectionnez le code pour le copier.", !copied);
+    }
+  }
+
+  async function shareReferralCode() {
+    const code = document.querySelector("#member-referral-code")?.value;
+    if (!code) return;
+    const shareData = {
+      title: "Rejoignez BaddieLink",
+      text: "Inscrivez-vous sur BaddieLink avec mon code de parrainage : " + code,
+      url: window.location.origin + window.location.pathname
+    };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else await copyReferralCode();
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.error("Referral code sharing failed:", error);
+        await copyReferralCode();
+      }
+    }
+  }
+
+  async function deactivateReferralCode() {
+    const confirmed = window.confirm(
+      "Désactiver définitivement votre code ? Les nouvelles inscriptions ne pourront plus l’utiliser. Les parrainages déjà attribués et les récompenses acquises seront conservés. Cette action est irréversible."
+    );
+    if (!confirmed) return;
+    const button = document.querySelector("#deactivate-referral-code");
+    if (button) button.disabled = true;
+    try {
+      const { data, error } = await client.rpc("deactivate_my_referral_code");
+      if (error) throw error;
+      if (data !== true && data !== false) throw new Error("Réponse inattendue du serveur.");
+      await loadReferralDashboard();
+      window.BaddieLinkUI?.toast(data ? "Votre code a été désactivé." : "Votre code était déjà désactivé.");
+    } catch (error) {
+      console.error("Referral code deactivation failed:", error);
+      window.BaddieLinkUI?.toast(error.message || "Impossible de désactiver le code.", true);
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
 
@@ -1134,6 +1259,11 @@
     document.querySelector("#profile-editor-modal")?.classList.add("hidden");
   }
 
+
+  document.querySelector("#create-referral-code")?.addEventListener("click", createReferralCode);
+  document.querySelector("#copy-referral-code")?.addEventListener("click", copyReferralCode);
+  document.querySelector("#share-referral-code")?.addEventListener("click", shareReferralCode);
+  document.querySelector("#deactivate-referral-code")?.addEventListener("click", deactivateReferralCode);
 
   document.querySelector("#event-image")?.addEventListener("change", event => {
     previewImageInput(
