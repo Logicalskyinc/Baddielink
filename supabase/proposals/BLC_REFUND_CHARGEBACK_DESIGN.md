@@ -180,3 +180,40 @@ These are policy choices, not safe assumptions:
 - Keep top-ups, refunds, chargebacks and payouts disabled until provider integration, accounting sign-off, legal/compliance review, reconciliation and isolated PostgreSQL concurrency/security tests are complete.
 - Implement this as a separate proposal and migration series, not as an unreviewed addition to the referral-integrity migration.
 - Require explicit approval before any production migration, provider credential configuration, billing change, or deployment.
+
+## Selected candidate provider: Wave
+
+Decision recorded: Wave is the selected candidate provider for BaddieLink's future XOF top-up integration. This is a provider selection for design and verification only, not approval to create a Wave business account, configure credentials, enable payments, or deploy code.
+
+Official documentation reviewed:
+- Business API overview: https://docs.wave.com/business
+- Checkout API: https://docs.wave.com/checkout
+- Webhooks: https://docs.wave.com/webhook
+- Balance and reconciliation API: https://docs.wave.com/balance-api
+
+Documented capabilities relevant to BaddieLink:
+- Wave Business APIs require a Wave Business Account. API keys are scoped to a business wallet and must remain server-side. The Developer section is available to Business Portal admins; API access may require Wave to enable it.
+- Checkout accepts XOF amounts with no decimal places and returns a `wave_launch_url` that must be opened in the user's browser, not embedded in an in-app webview.
+- Checkout webhooks include `checkout.session.completed`; the event data exposes checkout/payment status, currency, amount, transaction ID and client reference.
+- Webhook verification uses the raw request body and the webhook signing secret. Event IDs must be used for idempotency. Wave documents duplicate, missed and out-of-order delivery, so the application must reconcile with Wave's API rather than treating webhooks as the sole source of truth.
+- Wave documents a Checkout refund endpoint and a Balance API transaction-refund endpoint. The documented Checkout refund request has no amount parameter and refunds the payment associated with the checkout. Do not assume partial refunds are supported by this endpoint.
+- The Balance API exposes wallet balance, transaction listing and refunds, which can support reconciliation.
+
+Important limitations to resolve with Wave before implementation:
+1. Confirm that BaddieLink's legal entity and Wave Business Account can be onboarded in Côte d'Ivoire and that API Checkout is enabled for that account.
+2. Confirm applicable merchant fees, settlement timing, settlement reporting, transaction limits, refund rules and any reserve/hold requirements.
+3. Confirm whether partial refunds are available through another approved Wave workflow. The public Checkout refund endpoint documents a full checkout refund only.
+4. Confirm how Wave notifies merchants about disputes, reversals, chargebacks and chargeback fees. The public webhook event list reviewed documents checkout and merchant-payment events, but does not document a complete chargeback/dispute lifecycle.
+5. Confirm how to obtain authoritative payment state and dispute evidence when webhook events are missed or arrive out of order.
+
+Implementation constraints:
+- Never credit BLC from the browser success redirect. Credit only after server-side verification of the authoritative Wave payment state and a valid webhook/reconciliation result.
+- Store Wave checkout ID, Wave transaction ID, client reference, provider event ID, environment and normalized XOF amount against one internal top-up.
+- Keep Wave API keys and webhook secrets in server-side secret storage. Never put them in frontend code, Git, logs or chat.
+- Verify webhook signatures against the exact raw body before parsing. Use constant-time comparison and timestamp/replay checks according to Wave's current webhook signing documentation.
+- Persist the event before acknowledging it, process asynchronously, deduplicate by provider event ID, and reconcile against Wave's Checkout/Balance APIs.
+- Treat refund requests as external side effects. Persist an internal refund operation and idempotency state before calling Wave; reconcile the final Wave transaction state before posting the internal compensating ledger journal.
+- Do not implement chargeback handling until Wave confirms the actual dispute/reversal lifecycle and available event/API support.
+
+This provider choice does not change the release gates: top-ups, refunds, chargebacks, payouts and cash-out remain disabled until provenance, accounting, compliance, integration tests and explicit release approvals are complete.
+
