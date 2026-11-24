@@ -49,6 +49,7 @@
         <form id="auth-form">
           <div class="field" id="name-field"><label for="full-name">Nom affiché</label><input id="full-name" name="name" autocomplete="name" placeholder="Ex. Aïcha K." maxlength="40"></div>
           <div class="field" id="dob-field"><label for="date-of-birth">Date de naissance</label><input id="date-of-birth" name="date_of_birth" type="date" autocomplete="bday"><small>Réservé aux personnes âgées de 18 ans ou plus. Cette déclaration n’est pas une vérification d’identité.</small></div>
+          <div class="field" id="referral-code-field"><label for="referral-code">Code de parrainage (facultatif)</label><input id="referral-code" name="referral_code" type="text" maxlength="24" minlength="24" pattern="[A-Fa-f0-9]{24}" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Code de votre ami(e)"><small>Le code est vérifié lors de la création du compte. Il ne peut pas être ajouté ou modifié ensuite.</small></div>
           <div class="field"><label for="email">Adresse e-mail</label><input id="email" name="email" type="email" autocomplete="email" placeholder="vous@exemple.com" required></div>
 
           <div class="field"><label for="password">Mot de passe</label><input id="password" name="password" type="password" minlength="8" autocomplete="new-password" placeholder="8 caractères minimum" required></div>
