@@ -52,7 +52,13 @@ CREATE TABLE private.referral_rewards (
   CONSTRAINT referral_reward_gift_sender_identity_fk
     FOREIGN KEY (gift_transaction_id, referred_user_id)
     REFERENCES private.gift_transactions(id, sender_user_id)
-    ON DELETE RESTRICT
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_gift_wallet_identity_fk
+    FOREIGN KEY (gift_transaction_id, wallet_transaction_id)
+    REFERENCES private.gift_transactions(id, wallet_transaction_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_five_percent_check
+    CHECK (reward_amount_blc = floor(eligible_amount_xof * 5 / 100.0)::bigint)
 );
 
 CREATE INDEX referral_rewards_referrer_history_idx
