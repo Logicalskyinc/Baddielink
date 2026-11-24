@@ -61,7 +61,7 @@ END AS claim_replay_result;
 
 SELECT public.attach_wave_checkout_session(
   :'wave_checkout_topup_id'::uuid,
-  'cos-ci-wave-checkout-0002'
+  'cos-ciwavecheckout0002'
 );
 
 RESET ROLE;
@@ -83,7 +83,7 @@ BEGIN
     SELECT 1 FROM private.provider_payment_references
     WHERE topup_id = v_topup_id
       AND reference_type = 'checkout_session'
-      AND provider_reference = 'cos-ci-wave-checkout-0002'
+      AND provider_reference = 'cos-ciwavecheckout0002'
   ) THEN
     RAISE EXCEPTION 'Checkout session reference was not persisted';
   END IF;
