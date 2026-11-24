@@ -70,6 +70,9 @@ jobs:
       - name: Apply authenticated gift RPC wrappers
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_GIFT_RPC_WRAPPERS.sql
 
+      - name: Apply referral-code lifecycle proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_LIFECYCLE.sql
+
       - name: Run BLC integration tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
 
