@@ -35,6 +35,7 @@
       : "Ravi de vous retrouver sur BaddieLink.";
     $("#name-field").classList.toggle("hidden", !signup);
     $("#dob-field").classList.toggle("hidden", !signup);
+    $("#referral-code-field").classList.toggle("hidden", !signup);
     $("#date-of-birth").required = signup;
     $("#terms").required = signup;
     $("#terms").closest(".checkline")?.classList.toggle("hidden", !signup);
