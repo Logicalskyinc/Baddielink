@@ -573,10 +573,12 @@
   async function shareReferralCode() {
     const code = document.querySelector("#member-referral-code")?.value;
     if (!code) return;
+    const referralUrl = new URL(window.location.pathname, window.location.origin);
+    referralUrl.searchParams.set("ref", code);
     const shareData = {
       title: "Rejoignez BaddieLink",
       text: "Inscrivez-vous sur BaddieLink avec mon code de parrainage : " + code,
-      url: window.location.origin + window.location.pathname
+      url: referralUrl.toString()
     };
     try {
       if (navigator.share) await navigator.share(shareData);
