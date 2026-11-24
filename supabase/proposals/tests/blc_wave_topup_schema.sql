@@ -139,14 +139,14 @@ BEGIN
   -- A wallet transaction owned by another member cannot be linked to this top-up.
   SELECT id INTO v_other_wallet_id
   FROM private.wallet_accounts
-  WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000004'
     AND account_kind = 'purchased_blc';
 
   IF v_other_wallet_id IS NULL THEN
     INSERT INTO private.wallet_accounts (
       owner_user_id, account_code, account_kind, unit, is_system
     ) VALUES (
-      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000004',
       'ci-wave-other-member-purchased-wallet',
       'purchased_blc', 'BLC', false
     ) RETURNING id INTO v_other_wallet_id;
@@ -159,7 +159,7 @@ BEGIN
     transaction_type, idempotency_key, actor_user_id
   ) VALUES (
     'manual_adjustment', 'ci-wave-other-owner-credit',
-    '00000000-0000-0000-0000-000000000001'
+    '00000000-0000-0000-0000-000000000004'
   ) RETURNING id INTO v_other_user_tx_id;
 
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
