@@ -44,14 +44,14 @@ CREATE OR REPLACE FUNCTION private.is_adult_declared(target_user_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
-AS $
+AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.user_private_settings s
     WHERE s.user_id = target_user_id
       AND s.date_of_birth <= current_date - interval '18 years'
       AND s.age_declaration_at IS NOT NULL
   );
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION private.is_blocked_with(target_user_id uuid)
 RETURNS boolean
