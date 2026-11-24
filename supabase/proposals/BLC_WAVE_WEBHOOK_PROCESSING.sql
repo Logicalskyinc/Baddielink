@@ -38,6 +38,18 @@ DECLARE
   v_issuance_wallet uuid;
   v_wallet_transaction uuid;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM private.payment_provider_accounts a
+    WHERE a.id = p_provider_account_id
+      AND a.provider_code = 'wave'
+      AND a.environment = 'sandbox'
+      AND a.currency_code = 'XOF'
+  ) THEN
+    RAISE EXCEPTION 'Webhook provider account must be a configured Wave sandbox account'
+      USING ERRCODE = '22023';
+  END IF;
+
   IF p_provider_account_id IS NULL
      OR p_provider_event_id IS NULL
      OR length(btrim(p_provider_event_id)) NOT BETWEEN 1 AND 255
@@ -51,16 +63,10 @@ BEGIN
   END IF;
 
   IF p_event_type <> 'checkout.session.completed' THEN
-    INSERT INTO private.provider_events (
-      provider_account_id, provider_event_id, event_type,
-      provider_reference, signature_valid, signature_timestamp,
-      payload_sha256, payload_redacted, processing_status
-    ) VALUES (
-      p_provider_account_id, p_provider_event_id, p_event_type,
-      p_checkout_session_id, true, p_signature_timestamp,
-      p_payload_sha256, p_payload_redacted, 'ignored_duplicate'
-    )
-    ON CONFLICT (provider_account_id, provider_event_id) DO NOTHING;
+    UPDATE private.provider_events
+    SET processing_status = 'ignored_duplicate',
+        processed_at = NULL
+    WHERE id = v_event_id;
 
     RETURN QUERY SELECT 'ignored_event'::text, NULL::uuid, NULL::uuid;
     RETURN;
@@ -104,6 +110,7 @@ BEGIN
     IF v_existing_hash <> p_payload_sha256 THEN
       UPDATE private.provider_events
       SET processing_status = 'review_required',
+          processed_at = NULL,
           last_error_code = 'event_payload_hash_conflict',
           last_error_at = now()
       WHERE id = v_event_id;
