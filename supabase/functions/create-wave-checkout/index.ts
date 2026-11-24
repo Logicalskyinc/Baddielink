@@ -221,6 +221,7 @@ Deno.serve(async (request: Request) => {
 
         session = await retrieveWaveCheckoutSession({
           apiKey: waveApiKey,
+          requestSigningSecret: waveRequestSigningSecret,
           checkoutSessionId: recovery.checkout_session_id,
           amountXof: Number(topup.amount_xof),
           clientReference: topup.client_reference,
