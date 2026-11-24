@@ -49,6 +49,48 @@ ALTER TABLE private.gift_inventory_topup_funding_lots ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.gift_inventory_topup_funding_lots
   FROM PUBLIC, anon, authenticated;
 
+
+-- A top-up-backed inventory child lot may only be consumed. Its source
+-- identity and original amount are immutable, and balances cannot be restored
+-- by an ordinary UPDATE or removed by DELETE.
+CREATE OR REPLACE FUNCTION private.protect_gift_inventory_topup_source_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Top-up-backed gift inventory source lots cannot be deleted';
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.gift_inventory_funding_lot_id IS DISTINCT FROM OLD.gift_inventory_funding_lot_id
+     OR NEW.inventory_purchase_id IS DISTINCT FROM OLD.inventory_purchase_id
+     OR NEW.topup_funding_lot_id IS DISTINCT FROM OLD.topup_funding_lot_id
+     OR NEW.user_id IS DISTINCT FROM OLD.user_id
+     OR NEW.wallet_transaction_id IS DISTINCT FROM OLD.wallet_transaction_id
+     OR NEW.original_purchased_blc IS DISTINCT FROM OLD.original_purchased_blc
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'Top-up-backed gift inventory source identity is immutable';
+  END IF;
+
+  IF NEW.remaining_purchased_blc > OLD.remaining_purchased_blc
+     OR NEW.consumed_purchased_blc < OLD.consumed_purchased_blc THEN
+    RAISE EXCEPTION 'Top-up-backed gift inventory source consumption cannot be reversed';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER gift_inventory_topup_sources_protect_mutation
+  BEFORE UPDATE OR DELETE ON private.gift_inventory_topup_funding_lots
+  FOR EACH ROW EXECUTE FUNCTION private.protect_gift_inventory_topup_source_mutation();
+
+REVOKE ALL ON FUNCTION private.protect_gift_inventory_topup_source_mutation()
+FROM PUBLIC, anon, authenticated;
+
 -- Called by an AFTER INSERT trigger on gift_inventory_purchases. The purchased
 -- debit is read from the transaction's own journal, never supplied by a client.
 -- Top-up lots are locked in FIFO order and decremented in the same transaction
