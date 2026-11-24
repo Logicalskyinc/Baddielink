@@ -49,6 +49,22 @@ BEGIN
     RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
   END IF;
 
+  PERFORM 1
+  FROM auth.users u
+  JOIN public.profiles p ON p.id = u.id
+  JOIN public.user_private_settings s ON s.user_id = u.id
+  WHERE u.id = v_user_id
+    AND u.email_confirmed_at IS NOT NULL
+    AND p.moderation_status NOT IN ('restricted', 'removed')
+    AND s.date_of_birth <= (CURRENT_DATE - INTERVAL '18 years')::date
+    AND s.age_declaration_at IS NOT NULL
+  FOR SHARE OF u, p, s;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Account is not eligible to create a BLC top-up'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF p_amount_xof IS NULL OR p_amount_xof <= 0 THEN
     RAISE EXCEPTION 'Top-up amount must be a positive XOF integer'
       USING ERRCODE = '22023';
