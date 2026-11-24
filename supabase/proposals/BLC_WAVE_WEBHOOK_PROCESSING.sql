@@ -244,6 +244,12 @@ BEGIN
     v_topup.user_id, 'purchased_blc', 'BLC'
   );
 
+  -- Serialize this credit with concurrent wallet spending on the member account.
+  PERFORM 1
+  FROM private.wallet_accounts a
+  WHERE a.id = v_member_wallet
+  FOR UPDATE;
+
   SELECT a.id INTO STRICT v_issuance_wallet
   FROM private.wallet_accounts a
   WHERE a.account_code = 'system:blc-issuance'
