@@ -679,9 +679,9 @@ COMMIT;
 -- Funding provenance lot identity must match its source purchase.
 DO $funding_lot_identity$
 DECLARE
-  purchase_id uuid;
+  test_purchase_id uuid;
 BEGIN
-  SELECT id INTO STRICT purchase_id
+  SELECT id INTO STRICT test_purchase_id
   FROM private.gift_inventory_purchases
   WHERE wallet_transaction_id = (
     SELECT id FROM private.wallet_transactions
@@ -689,9 +689,9 @@ BEGIN
   );
 
   BEGIN
-    UPDATE private.gift_inventory_funding_lots
+    UPDATE private.gift_inventory_funding_lots AS lot
     SET user_id = '00000000-0000-0000-0000-000000000008'
-    WHERE purchase_id = purchase_id;
+    WHERE lot.purchase_id = test_purchase_id;
     RAISE EXCEPTION 'Mismatched funding-lot owner was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
     NULL;
