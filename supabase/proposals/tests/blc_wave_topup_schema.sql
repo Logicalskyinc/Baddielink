@@ -91,6 +91,9 @@ DECLARE
   v_credit_tx_id uuid;
   v_other_user_tx_id uuid;
   v_other_wallet_id uuid;
+  v_second_credit_tx_id uuid;
+  v_second_topup_id uuid;
+  v_member_wallet_id uuid;
   v_other_issuance_id uuid;
   v_issuance_id uuid;
   v_member_wallet_id uuid;
@@ -242,6 +245,35 @@ BEGIN
   EXCEPTION WHEN check_violation THEN
     NULL;
   END;
+
+  -- Create a second credited top-up so the wrong-wallet test reaches the
+  -- composite owner FK rather than the one-lot-per-top-up unique constraint.
+  SELECT id INTO STRICT v_member_wallet_id
+  FROM private.wallet_accounts
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000002'
+    AND account_kind = 'purchased_blc';
+
+  INSERT INTO private.wallet_transactions (
+    transaction_type, idempotency_key, actor_user_id
+  ) VALUES (
+    'purchase_credit', 'ci-wave-second-topup-credit-user-002',
+    '00000000-0000-0000-0000-000000000002'
+  ) RETURNING id INTO v_second_credit_tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (v_second_credit_tx_id, v_member_wallet_id, 'BLC', 1),
+    (v_second_credit_tx_id, v_issuance_id, 'BLC', -1);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id, verified_at, credited_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000002',
+    v_provider_id, 1, 1, 1, 1, 'credited',
+    'ci-wave-second-topup-client-002', v_second_credit_tx_id, now(), now()
+  ) RETURNING id INTO v_second_topup_id;
 
   -- The funding lot must link to the top-up's exact credit journal and member.
   BEGIN
