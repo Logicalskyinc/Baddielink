@@ -1,0 +1,74 @@
+name: BLC PostgreSQL CI
+
+on:
+  push:
+    branches:
+      - feat/blc-deferred-referral-rewards-clean
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/proposals/**"
+      - ".github/workflows/blc-postgres-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  blc-postgres:
+    name: BLC integration tests (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: baddielink_blc_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d baddielink_blc_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: baddielink_blc_ci
+      PGUSER: postgres
+      PGPASSWORD: ci-only-password
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Initialize isolated Supabase-compatible test objects
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/bootstrap.sql
+
+      - name: Apply BLC ledger foundation proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_LEDGER_FOUNDATION.sql
+
+      - name: Apply gift inventory and settlement proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_GIFTS_AND_SETTLEMENT.sql
+
+      - name: Apply deferred referral schema
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_REWARDS.sql
+
+      - name: Apply funding provenance and deferred reward triggers
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_REFERRAL_PROVENANCE.sql
+
+      - name: Apply authenticated gift RPC wrappers
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_GIFT_RPC_WRAPPERS.sql
+
+      - name: Run BLC integration tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
+
+      - name: Run BLC concurrent spending and inventory tests
+        run: bash supabase/proposals/tests/blc_concurrency.sh
