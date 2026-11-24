@@ -171,11 +171,20 @@ function validateWaveCheckoutSession(session, { amountXof, clientReference }) {
   };
 }
 
+/**
+ * @param {{
+ *   apiKey: string,
+ *   amountXof: number,
+ *   clientReference: string,
+ *   requestSigningSecret?: string,
+ *   fetchImpl?: typeof fetch
+ * }} options
+ */
 export async function searchWaveCheckoutByClientReference({
   apiKey,
   amountXof,
   clientReference,
-  requestSigningSecret = undefined,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -211,12 +220,22 @@ export async function searchWaveCheckoutByClientReference({
   return matches[0] ?? null;
 }
 
+/**
+ * @param {{
+ *   apiKey: string,
+ *   checkoutSessionId: string,
+ *   amountXof: number,
+ *   clientReference: string,
+ *   requestSigningSecret?: string,
+ *   fetchImpl?: typeof fetch
+ * }} options
+ */
 export async function retrieveWaveCheckoutSession({
   apiKey,
   checkoutSessionId,
   amountXof,
   clientReference,
-  requestSigningSecret = undefined,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -242,13 +261,24 @@ export async function retrieveWaveCheckoutSession({
   return validateWaveCheckoutSession(await response.json(), { amountXof, clientReference });
 }
 
+/**
+ * @param {{
+ *   apiKey: string,
+ *   amountXof: number,
+ *   clientReference: string,
+ *   successUrl: string,
+ *   errorUrl: string,
+ *   requestSigningSecret?: string,
+ *   fetchImpl?: typeof fetch
+ * }} options
+ */
 export async function createWaveCheckoutSession({
   apiKey,
   amountXof,
   clientReference,
   successUrl,
   errorUrl,
-  requestSigningSecret = undefined,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
