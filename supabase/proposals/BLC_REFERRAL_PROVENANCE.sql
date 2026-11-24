@@ -156,11 +156,12 @@ BEGIN
   FROM private.referral_attributions a
   JOIN auth.users ru ON ru.id = a.referrer_user_id
   JOIN public.profiles rp ON rp.id = a.referrer_user_id
+  JOIN public.user_private_settings ups ON ups.user_id = a.referrer_user_id
   WHERE a.referred_user_id = NEW.sender_user_id
     AND ru.email_confirmed_at IS NOT NULL
     AND rp.moderation_status NOT IN ('restricted', 'removed')
     AND private.is_adult_declared(a.referrer_user_id)
-  FOR SHARE OF a;
+  FOR SHARE OF a, ru, rp, ups;
 
   reward_blc := CASE
     WHEN attribution_id IS NOT NULL
