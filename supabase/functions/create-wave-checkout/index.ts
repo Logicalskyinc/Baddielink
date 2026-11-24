@@ -80,6 +80,7 @@ Deno.serve(async (request: Request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const waveApiKey = Deno.env.get("WAVE_SANDBOX_API_KEY");
+  const waveRequestSigningSecret = Deno.env.get("WAVE_SANDBOX_API_SIGNING_SECRET") ?? undefined;
   const successUrl = Deno.env.get("WAVE_SUCCESS_URL");
   const errorUrl = Deno.env.get("WAVE_ERROR_URL");
 
@@ -166,6 +167,7 @@ Deno.serve(async (request: Request) => {
     if (claim.claim_status === "already_attached") {
       session = await retrieveWaveCheckoutSession({
         apiKey: waveApiKey,
+        requestSigningSecret: waveRequestSigningSecret,
         checkoutSessionId: claim.checkout_session_id,
         amountXof: Number(topup.amount_xof),
         clientReference: topup.client_reference,
@@ -176,6 +178,7 @@ Deno.serve(async (request: Request) => {
       // session created before a network timeout or process interruption.
       session = await searchWaveCheckoutByClientReference({
         apiKey: waveApiKey,
+        requestSigningSecret: waveRequestSigningSecret,
         amountXof: Number(topup.amount_xof),
         clientReference: topup.client_reference,
       });
@@ -183,6 +186,7 @@ Deno.serve(async (request: Request) => {
       if (!session) {
         session = await createWaveCheckoutSession({
           apiKey: waveApiKey,
+          requestSigningSecret: waveRequestSigningSecret,
           amountXof: Number(topup.amount_xof),
           clientReference: topup.client_reference,
           successUrl,
