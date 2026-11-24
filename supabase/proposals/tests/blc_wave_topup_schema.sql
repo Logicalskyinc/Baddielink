@@ -91,6 +91,7 @@ DECLARE
   v_credit_tx_id uuid;
   v_other_user_tx_id uuid;
   v_other_wallet_id uuid;
+  v_issuance_id uuid;
 BEGIN
   SELECT id INTO STRICT v_provider_id
   FROM private.payment_provider_accounts
@@ -135,12 +136,24 @@ BEGIN
   END;
 
   -- A wallet transaction owned by another member cannot be linked to this top-up.
+  SELECT id INTO STRICT v_other_wallet_id
+  FROM private.wallet_accounts
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
+    AND account_kind = 'purchased_blc';
+  SELECT id INTO STRICT v_issuance_id
+  FROM private.wallet_accounts WHERE account_code = 'system:blc-issuance';
+
   INSERT INTO private.wallet_transactions (
     transaction_type, idempotency_key, actor_user_id
   ) VALUES (
     'manual_adjustment', 'ci-wave-other-owner-credit',
     '00000000-0000-0000-0000-000000000001'
   ) RETURNING id INTO v_other_user_tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (v_other_user_tx_id, v_other_wallet_id, 'BLC', 1),
+    (v_other_user_tx_id, v_issuance_id, 'BLC', -1);
 
   BEGIN
     INSERT INTO private.blc_topups (
@@ -157,7 +170,6 @@ BEGIN
     NULL;
   END;
 
-  DELETE FROM private.wallet_transactions WHERE id = v_other_user_tx_id;
 
   -- Duplicate provider event IDs must not create a second event record.
   BEGIN
