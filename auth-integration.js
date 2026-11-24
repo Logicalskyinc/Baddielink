@@ -8,6 +8,7 @@
   const form = document.querySelector("#auth-form");
   const dobField = document.querySelector("#dob-field");
   const dobInput = document.querySelector("#date-of-birth");
+  const referralCodeInput = document.querySelector("#referral-code");
   const nameInput = document.querySelector("#full-name");
   const emailInput = document.querySelector("#email");
   const passwordInput = document.querySelector("#password");
@@ -1270,7 +1271,8 @@
           options: {
             data: {
               display_name: displayName,
-              username: displayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 18)
+              username: displayName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 18),
+              referral_code: (referralCodeInput?.value || "").trim().toUpperCase()
             },
             emailRedirectTo: window.location.origin + window.location.pathname
           }
