@@ -1,5 +1,31 @@
 const encoder = new TextEncoder();
 
+async function buildWaveRequestHeaders(apiKey, rawBody, requestSigningSecret) {
+  const headers = { Authorization: "Bearer " + apiKey };
+  if (!requestSigningSecret) return headers;
+
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(requestSigningSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(timestamp + rawBody),
+  );
+  headers["Wave-Signature"] = "t=" + timestamp + ",v1=" + toHex(new Uint8Array(signature));
+  return headers;
+}
+
+function toHex(bytes) {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+
 function hexToBytes(hex) {
   if (!/^[0-9a-f]{64}$/i.test(hex)) return null;
   const bytes = new Uint8Array(32);
@@ -149,6 +175,7 @@ export async function searchWaveCheckoutByClientReference({
   apiKey,
   amountXof,
   clientReference,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -160,7 +187,7 @@ export async function searchWaveCheckoutByClientReference({
 
   const response = await fetchImpl(url.toString(), {
     method: "GET",
-    headers: { Authorization: "Bearer " + apiKey },
+    headers: await buildWaveRequestHeaders(apiKey, "", requestSigningSecret),
     signal: AbortSignal.timeout(5000),
   });
 
@@ -189,6 +216,7 @@ export async function retrieveWaveCheckoutSession({
   checkoutSessionId,
   amountXof,
   clientReference,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -202,8 +230,8 @@ export async function retrieveWaveCheckoutSession({
     "https://api.wave.com/v1/checkout/sessions/" + encodeURIComponent(checkoutSessionId),
     {
       method: "GET",
-      headers: { Authorization: "Bearer " + apiKey },
-      signal: AbortSignal.timeout(5000),
+      headers: await buildWaveRequestHeaders(apiKey, "", requestSigningSecret),
+      signal: AbortSignal.timeout(3000),
     },
   );
 
@@ -220,6 +248,7 @@ export async function createWaveCheckoutSession({
   clientReference,
   successUrl,
   errorUrl,
+  requestSigningSecret,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -233,13 +262,14 @@ export async function createWaveCheckoutSession({
     errorUrl,
   });
 
+  const rawBody = JSON.stringify(requestBody);
+  const headers = await buildWaveRequestHeaders(apiKey, rawBody, requestSigningSecret);
+  headers["Content-Type"] = "application/json";
+
   const response = await fetchImpl("https://api.wave.com/v1/checkout/sessions", {
     method: "POST",
-    headers: {
-      Authorization: "Bearer " + apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
+    headers,
+    body: rawBody,
     signal: AbortSignal.timeout(5000),
   });
 
@@ -254,6 +284,7 @@ export async function createWaveCheckoutSession({
     typeof session.wave_launch_url !== "string" ||
     typeof session.amount !== "string" ||
     session.currency !== "XOF" ||
+    !["open", "complete", "expired"].includes(session.checkout_status) ||
     session.client_reference !== clientReference ||
     session.amount !== String(amountXof)
   ) {
