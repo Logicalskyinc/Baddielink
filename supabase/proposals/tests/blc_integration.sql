@@ -54,7 +54,7 @@ INSERT INTO private.referral_attributions (
 
 -- The referral code must belong to the declared referrer. A mismatched owner
 -- must be rejected by the composite foreign key.
-DO $
+DO $test$
 BEGIN
   BEGIN
     INSERT INTO private.referral_attributions (
@@ -70,7 +70,7 @@ BEGIN
     NULL;
   END;
 END;
-$;
+$test$;
 
 -- An inactive code cannot create a new attribution.
 INSERT INTO private.referral_codes (
@@ -82,7 +82,7 @@ INSERT INTO private.referral_codes (
   false
 );
 
-DO $
+DO $test$
 BEGIN
   BEGIN
     INSERT INTO private.referral_attributions (
@@ -98,7 +98,7 @@ BEGIN
     NULL;
   END;
 END;
-$;
+$test$;
 
 -- Seed 100 purchased BLC as a balanced, posted test credit.
 BEGIN;
