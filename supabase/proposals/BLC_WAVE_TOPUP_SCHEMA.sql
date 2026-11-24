@@ -214,6 +214,47 @@ CREATE TABLE private.blc_topup_funding_lots (
   CONSTRAINT blc_topup_funding_lots_id_user_unique UNIQUE (id, user_id)
 );
 
+
+-- Funding lots are append-only in identity and original value. The only
+-- permitted mutation is monotonic consumption; corrections/refunds require
+-- separate compensating records rather than restoring spendable lot value.
+CREATE OR REPLACE FUNCTION private.protect_blc_topup_funding_lot_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Top-up funding lots cannot be deleted';
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.topup_id IS DISTINCT FROM OLD.topup_id
+     OR NEW.user_id IS DISTINCT FROM OLD.user_id
+     OR NEW.wallet_account_id IS DISTINCT FROM OLD.wallet_account_id
+     OR NEW.wallet_account_kind IS DISTINCT FROM OLD.wallet_account_kind
+     OR NEW.credit_wallet_transaction_id IS DISTINCT FROM OLD.credit_wallet_transaction_id
+     OR NEW.original_amount_blc IS DISTINCT FROM OLD.original_amount_blc
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'Top-up funding lot identity and original amount are immutable';
+  END IF;
+
+  IF NEW.remaining_amount_blc > OLD.remaining_amount_blc
+     OR NEW.consumed_amount_blc < OLD.consumed_amount_blc THEN
+    RAISE EXCEPTION 'Top-up funding lot consumption cannot be reversed';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER blc_topup_funding_lots_protect_mutation
+  BEFORE UPDATE OR DELETE ON private.blc_topup_funding_lots
+  FOR EACH ROW EXECUTE FUNCTION private.protect_blc_topup_funding_lot_mutation();
+
+REVOKE ALL ON FUNCTION private.protect_blc_topup_funding_lot_mutation()
+FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION private.require_credited_topup_funding_lot()
 RETURNS trigger
 LANGUAGE plpgsql
