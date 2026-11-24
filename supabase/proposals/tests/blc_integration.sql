@@ -403,7 +403,7 @@ BEGIN
       sender_five_attribution,
       '00000000-0000-0000-0000-000000000002',
       '00000000-0000-0000-0000-000000000005',
-      referral_only_gift.id, 10, 1, referral_only_gift.wallet_transaction_id
+      referral_only_gift.id, 20, 1, referral_only_gift.wallet_transaction_id
     );
     RAISE EXCEPTION 'Mismatched reward referrer was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
@@ -424,7 +424,7 @@ BEGIN
       sender_five_attribution,
       '00000000-0000-0000-0000-000000000001',
       '00000000-0000-0000-0000-000000000005',
-      referral_only_gift.id, 10, 1, unrelated_wallet_transaction
+      referral_only_gift.id, 20, 1, unrelated_wallet_transaction
     );
     RAISE EXCEPTION 'Reward linked to an unrelated wallet transaction was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
@@ -458,7 +458,7 @@ BEGIN
       sender_two_attribution,
       '00000000-0000-0000-0000-000000000001',
       '00000000-0000-0000-0000-000000000002',
-      referral_only_gift.id, 10, 1, referral_only_gift.wallet_transaction_id
+      referral_only_gift.id, 20, 1, referral_only_gift.wallet_transaction_id
     );
     RAISE EXCEPTION 'Reward for a gift sent by another member was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
