@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/blc-deferred-referral-rewards-clean
+      - design/blc-refund-chargeback
   pull_request:
     branches:
       - main
@@ -80,6 +81,12 @@ jobs:
 
       - name: Run BLC integration tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_integration.sql
+
+      - name: Apply Wave top-up schema proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_TOPUP_SCHEMA.sql
+
+      - name: Run Wave top-up schema constraint tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_wave_topup_schema.sql
 
       - name: Apply Wave top-up schema proposal
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_TOPUP_SCHEMA.sql
