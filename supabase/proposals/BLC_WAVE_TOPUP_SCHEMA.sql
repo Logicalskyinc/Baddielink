@@ -16,6 +16,10 @@ ALTER TABLE private.wallet_transactions
   ADD CONSTRAINT wallet_transactions_id_actor_unique
   UNIQUE (id, actor_user_id);
 
+ALTER TABLE private.wallet_transactions
+  ADD CONSTRAINT wallet_transactions_id_actor_type_unique
+  UNIQUE (id, actor_user_id, transaction_type);
+
 ALTER TABLE private.gift_inventory_purchases
   ADD CONSTRAINT gift_inventory_purchases_wallet_buyer_unique
   UNIQUE (wallet_transaction_id, buyer_user_id);
@@ -62,6 +66,8 @@ CREATE TABLE private.blc_topups (
   client_reference text NOT NULL UNIQUE
     CHECK (length(btrim(client_reference)) BETWEEN 12 AND 160),
   credit_wallet_transaction_id uuid UNIQUE,
+  credit_transaction_type text NOT NULL DEFAULT 'purchase_credit'
+    CHECK (credit_transaction_type = 'purchase_credit'),
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz,
   verified_at timestamptz,
@@ -84,11 +90,43 @@ CREATE TABLE private.blc_topups (
   CONSTRAINT blc_topups_id_provider_unique UNIQUE (id, provider_account_id),
   CONSTRAINT blc_topups_id_user_unique UNIQUE (id, user_id),
   CONSTRAINT blc_topups_id_user_credit_unique UNIQUE (id, user_id, credit_wallet_transaction_id),
-  CONSTRAINT blc_topups_credit_actor_fk
-    FOREIGN KEY (credit_wallet_transaction_id, user_id)
-    REFERENCES private.wallet_transactions(id, actor_user_id)
+  CONSTRAINT blc_topups_credit_actor_type_fk
+    FOREIGN KEY (credit_wallet_transaction_id, user_id, credit_transaction_type)
+    REFERENCES private.wallet_transactions(id, actor_user_id, transaction_type)
     ON DELETE RESTRICT
 );
+
+CREATE OR REPLACE FUNCTION private.assert_blc_topup_credit_posted()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+DECLARE
+  transaction_is_posted boolean;
+BEGIN
+  IF NEW.status = 'credited' THEN
+    SELECT t.is_posted INTO transaction_is_posted
+    FROM private.wallet_transactions t
+    WHERE t.id = NEW.credit_wallet_transaction_id
+      AND t.actor_user_id = NEW.user_id
+      AND t.transaction_type = 'purchase_credit';
+
+    IF NOT FOUND OR transaction_is_posted IS DISTINCT FROM true THEN
+      RAISE EXCEPTION 'A credited top-up must reference a posted purchase-credit journal';
+    END IF;
+  END IF;
+
+  RETURN NULL;
+END;
+$function$;
+
+CREATE CONSTRAINT TRIGGER blc_topups_require_posted_credit
+  AFTER INSERT OR UPDATE ON private.blc_topups
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.assert_blc_topup_credit_posted();
+
+REVOKE ALL ON FUNCTION private.assert_blc_topup_credit_posted()
+FROM PUBLIC, anon, authenticated;
 
 CREATE INDEX blc_topups_user_history_idx
   ON private.blc_topups(user_id, created_at DESC);
