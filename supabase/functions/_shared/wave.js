@@ -117,7 +117,7 @@ export function buildWaveCheckoutRequest({
 function validateWaveCheckoutSession(session, { amountXof, clientReference }) {
   if (
     !session ||
-    typeof session.id !== "string" ||
+    typeof session.id !== "string" || !/^cos-[A-Za-z0-9]{1,16}$/.test(session.id) ||
     typeof session.wave_launch_url !== "string" ||
     typeof session.amount !== "string" ||
     session.currency !== "XOF" ||
@@ -249,7 +249,7 @@ export async function createWaveCheckoutSession({
   const session = await response.json();
   if (
     !session ||
-    typeof session.id !== "string" ||
+    typeof session.id !== "string" || !/^cos-[A-Za-z0-9]{1,16}$/.test(session.id) ||
     typeof session.wave_launch_url !== "string" ||
     typeof session.amount !== "string" ||
     session.currency !== "XOF" ||
