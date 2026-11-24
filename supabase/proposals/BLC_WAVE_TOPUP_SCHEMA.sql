@@ -214,22 +214,6 @@ CREATE TABLE private.blc_topup_funding_lots (
   CONSTRAINT blc_topup_funding_lots_id_user_unique UNIQUE (id, user_id)
 );
 
-ALTER TABLE private.blc_topups
-  ADD CONSTRAINT blc_topups_id_credit_transaction_unique
-  UNIQUE (id, credit_wallet_transaction_id);
-
-ALTER TABLE private.blc_topup_funding_lots
-  ADD COLUMN credit_wallet_transaction_id uuid;
-
-ALTER TABLE private.blc_topup_funding_lots
-  ALTER COLUMN credit_wallet_transaction_id SET NOT NULL;
-
-ALTER TABLE private.blc_topup_funding_lots
-  ADD CONSTRAINT blc_topup_funding_lots_credit_transaction_fk
-  FOREIGN KEY (topup_id, credit_wallet_transaction_id)
-  REFERENCES private.blc_topups(id, credit_wallet_transaction_id)
-  ON DELETE RESTRICT;
-
 CREATE OR REPLACE FUNCTION private.require_credited_topup_funding_lot()
 RETURNS trigger
 LANGUAGE plpgsql
