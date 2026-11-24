@@ -62,6 +62,9 @@ jobs:
       - name: Type-check Wave checkout Edge Function
         run: deno check --no-lock supabase/functions/create-wave-checkout/index.ts
 
+      - name: Type-check Wave webhook Edge Function
+        run: deno check --no-lock supabase/functions/wave-webhook/index.ts
+
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
