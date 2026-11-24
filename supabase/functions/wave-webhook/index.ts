@@ -92,7 +92,7 @@ Deno.serve(async (request: Request) => {
     webhookSecret,
   });
 
-  if (!signature.valid) {
+  if (!signature.valid || typeof signature.timestamp !== "number") {
     return reply(401, { error: "invalid_wave_signature" });
   }
 
