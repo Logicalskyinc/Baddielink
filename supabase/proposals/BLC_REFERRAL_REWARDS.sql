@@ -76,7 +76,7 @@ BEGIN
   FOR SHARE;
 
   IF NOT FOUND OR NOT code_is_active THEN
-    RAISE EXCEPTION 'Referral code is invalid or inactive';
+    RAISE EXCEPTION 'Referral code is invalid or inactive' USING ERRCODE = '23514';
   END IF;
 
   RETURN NEW;
