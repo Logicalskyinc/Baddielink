@@ -32,6 +32,7 @@ Use a Supabase Edge Function named `wave-webhook` as the public HTTPS receiver. 
 
 - Configure `verify_jwt = false` only for this function because Wave cannot supply a Supabase user JWT. The handler must authenticate every request using the Wave webhook signing secret.
 - Keep the Wave API key and webhook signing secret in Supabase project secrets. Never put either in the browser, repository, event payload, or logs.
+- If the Wave API key has request signing enabled, also configure `WAVE_SANDBOX_API_SIGNING_SECRET`. The shared client signs POST requests over the exact JSON body and GET requests over the empty body. This outbound API signing secret is separate from the webhook signing secret.
 - Read the raw request body once, enforce a small body-size limit, and verify the signature before parsing JSON.
 - Parse `Wave-Signature` as `t=<unix-seconds>,v1=<hex>`. Accept multiple `v1` signatures to support secret rotation.
 - Calculate HMAC-SHA256 over the exact concatenation `timestamp + raw_body`. Compare signatures using a constant-time comparison.
