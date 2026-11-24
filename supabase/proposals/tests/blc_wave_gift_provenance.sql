@@ -350,4 +350,79 @@ BEGIN
 END;
 $wave_multiple_topup_sources$;
 
+-- The gift send must consume both top-up-specific child lots in FIFO order.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000015', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-wave-multi-send-015'
+);
+RESET ROLE;
+COMMIT;
+
+DO $wave_multiple_topup_consumption$
+DECLARE
+  v_price bigint;
+  v_child_remaining bigint;
+  v_child_consumed bigint;
+  v_aggregate_remaining bigint;
+  v_first_consumed bigint;
+  v_second_consumed bigint;
+  v_user uuid := '00000000-0000-0000-0000-000000000015';
+BEGIN
+  SELECT price_blc INTO STRICT v_price
+  FROM private.gift_catalog
+  WHERE id = '10000000-0000-0000-0000-000000000001';
+
+  SELECT coalesce(sum(remaining_purchased_blc), 0),
+         coalesce(sum(consumed_purchased_blc), 0)
+    INTO v_child_remaining, v_child_consumed
+  FROM private.gift_inventory_topup_funding_lots
+  WHERE inventory_purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-wave-multi-purchase-015'
+    )
+  );
+
+  SELECT purchased_blc_remaining INTO STRICT v_aggregate_remaining
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-wave-multi-purchase-015'
+    )
+  );
+
+  SELECT consumed_amount_blc INTO STRICT v_first_consumed
+  FROM private.blc_topup_funding_lots
+  WHERE topup_id = (
+    SELECT id FROM private.blc_topups
+    WHERE client_reference = 'ci-wave-multi-topup-one-015'
+  );
+
+  SELECT consumed_amount_blc INTO STRICT v_second_consumed
+  FROM private.blc_topup_funding_lots
+  WHERE topup_id = (
+    SELECT id FROM private.blc_topups
+    WHERE client_reference = 'ci-wave-multi-topup-two-015'
+  );
+
+  IF v_child_remaining <> 0
+     OR v_child_consumed <> v_price
+     OR v_aggregate_remaining <> 0
+     OR v_first_consumed <> greatest(1, v_price / 2)
+     OR v_second_consumed <> v_price - greatest(1, v_price / 2) THEN
+    RAISE EXCEPTION
+      'Multi-source gift settlement did not reconcile: child remaining %, child consumed %, aggregate remaining %, first top-up consumed %, second top-up consumed %',
+      v_child_remaining, v_child_consumed, v_aggregate_remaining,
+      v_first_consumed, v_second_consumed;
+  END IF;
+END;
+$wave_multiple_topup_consumption$;
+
 SELECT 'BLC Wave gift inventory provenance tests passed' AS result;
