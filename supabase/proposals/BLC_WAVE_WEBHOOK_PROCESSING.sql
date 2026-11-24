@@ -62,31 +62,6 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  IF p_event_type <> 'checkout.session.completed' THEN
-    UPDATE private.provider_events
-    SET processing_status = 'ignored_duplicate',
-        processed_at = NULL
-    WHERE id = v_event_id;
-
-    RETURN QUERY SELECT 'ignored_event'::text, NULL::uuid, NULL::uuid;
-    RETURN;
-  END IF;
-
-  IF p_checkout_session_id IS NULL
-     OR length(btrim(p_checkout_session_id)) NOT BETWEEN 1 AND 255
-     OR p_transaction_id IS NULL
-     OR length(btrim(p_transaction_id)) NOT BETWEEN 1 AND 255
-     OR p_client_reference IS NULL
-     OR length(btrim(p_client_reference)) NOT BETWEEN 12 AND 160
-     OR p_amount_xof IS NULL
-     OR p_amount_xof <= 0
-     OR p_currency_code <> 'XOF'
-     OR p_checkout_status <> 'complete'
-     OR p_payment_status <> 'succeeded' THEN
-    RAISE EXCEPTION 'Wave checkout is not a completed XOF payment'
-      USING ERRCODE = '22023';
-  END IF;
-
   INSERT INTO private.provider_events (
     provider_account_id, provider_event_id, event_type,
     provider_reference, signature_valid, signature_timestamp,
@@ -107,7 +82,7 @@ BEGIN
       AND e.provider_event_id = p_provider_event_id
     FOR UPDATE;
 
-    IF v_existing_hash <> p_payload_sha256 THEN
+    IF v_existing_hash IS DISTINCT FROM p_payload_sha256 THEN
       UPDATE private.provider_events
       SET processing_status = 'review_required',
           processed_at = NULL,
@@ -127,10 +102,45 @@ BEGIN
       RETURN;
     END IF;
 
+    IF v_existing_status = 'ignored' THEN
+      RETURN QUERY SELECT 'duplicate'::text, processed_topup_id, NULL::uuid;
+      RETURN;
+    END IF;
+
     IF v_existing_status IN ('review_required', 'rejected') THEN
       RETURN QUERY SELECT v_existing_status, processed_topup_id, NULL::uuid;
       RETURN;
     END IF;
+  END IF;
+
+  IF p_event_type <> 'checkout.session.completed' THEN
+    UPDATE private.provider_events
+    SET processing_status = 'ignored',
+        last_error_code = CASE
+          WHEN p_event_type = 'checkout.session.payment_failed'
+            THEN 'checkout_payment_failed'
+          ELSE 'unsupported_event_type'
+        END,
+        last_error_at = now()
+    WHERE id = v_event_id;
+
+    RETURN QUERY SELECT 'ignored_event'::text, NULL::uuid, NULL::uuid;
+    RETURN;
+  END IF;
+
+  IF p_checkout_session_id IS NULL
+     OR length(btrim(p_checkout_session_id)) NOT BETWEEN 1 AND 255
+     OR p_transaction_id IS NULL
+     OR length(btrim(p_transaction_id)) NOT BETWEEN 1 AND 255
+     OR p_client_reference IS NULL
+     OR length(btrim(p_client_reference)) NOT BETWEEN 12 AND 160
+     OR p_amount_xof IS NULL
+     OR p_amount_xof <= 0
+     OR p_currency_code <> 'XOF'
+     OR p_checkout_status <> 'complete'
+     OR p_payment_status <> 'succeeded' THEN
+    RAISE EXCEPTION 'Wave checkout is not a completed XOF payment'
+      USING ERRCODE = '22023';
   END IF;
 
   SELECT t.* INTO v_topup

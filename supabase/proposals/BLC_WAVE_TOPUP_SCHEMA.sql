@@ -165,7 +165,7 @@ CREATE TABLE private.provider_events (
   payload_sha256 text NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
   payload_redacted jsonb,
   processing_status text NOT NULL DEFAULT 'received' CHECK (processing_status IN (
-    'received', 'queued', 'processed', 'ignored_duplicate',
+    'received', 'queued', 'processed', 'ignored_duplicate', 'ignored',
     'rejected', 'review_required', 'failed_retryable'
   )),
   processing_attempts integer NOT NULL DEFAULT 0 CHECK (processing_attempts >= 0),

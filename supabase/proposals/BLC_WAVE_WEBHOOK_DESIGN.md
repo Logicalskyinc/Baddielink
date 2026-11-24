@@ -38,7 +38,7 @@ Use a Supabase Edge Function named `wave-webhook` as the public HTTPS receiver. 
 - Calculate HMAC-SHA256 over the exact concatenation `timestamp + raw_body`. Compare signatures using a constant-time comparison.
 - Reject malformed signatures, missing signatures, timestamps older than five minutes, and timestamps too far in the future. Do not hash parsed or re-serialized JSON.
 - Parse JSON only after signature verification. Reject malformed JSON and unsupported event structures.
-- Ignore Wave test events and unsupported event types without side effects.
+- Persist signed event envelopes before classification. Record `checkout.session.payment_failed` and unsupported event types as `ignored` (without wallet effects); identical redeliveries return `duplicate`.
 
 ## Payment verification and credit
 

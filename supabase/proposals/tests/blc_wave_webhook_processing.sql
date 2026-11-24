@@ -14,6 +14,56 @@ WHERE r.user_id = '00000000-0000-0000-0000-000000000002'
 
 SET ROLE service_role;
 
+-- A valid payment_failed notification is persisted but cannot credit BLC.
+SELECT processing_result AS wave_webhook_failed_result
+FROM public.process_wave_checkout_event(
+  :'wave_webhook_provider_id'::uuid,
+  'evt-ciwavefail0001',
+  'checkout.session.payment_failed',
+  'cos-ciwavefail0001',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  repeat('a', 64),
+  now(),
+  '{"id":"evt-ciwavefail0001","type":"checkout.session.payment_failed","data":{"id":"cos-ciwavefail0001"}}'::jsonb
+)
+\gset
+
+SELECT CASE
+  WHEN :'wave_webhook_failed_result' = 'ignored_event'
+  THEN 'failed checkout event safely ignored and persisted'
+  ELSE (1 / 0)::text
+END AS failed_event_assertion;
+
+-- Re-delivery of the same failed event must be recognized as a duplicate.
+SELECT processing_result AS wave_webhook_failed_duplicate_result
+FROM public.process_wave_checkout_event(
+  :'wave_webhook_provider_id'::uuid,
+  'evt-ciwavefail0001',
+  'checkout.session.payment_failed',
+  'cos-ciwavefail0001',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  repeat('a', 64),
+  now(),
+  '{"id":"evt-ciwavefail0001","type":"checkout.session.payment_failed","data":{"id":"cos-ciwavefail0001"}}'::jsonb
+)
+\gset
+
+SELECT CASE
+  WHEN :'wave_webhook_failed_duplicate_result' = 'duplicate'
+  THEN 'failed checkout event duplicate protection passed'
+  ELSE (1 / 0)::text
+END AS failed_event_duplicate_assertion;
+
 SELECT processing_result AS wave_webhook_first_result
 FROM public.process_wave_checkout_event(
   :'wave_webhook_provider_id'::uuid,
@@ -171,6 +221,15 @@ BEGIN
      OR (SELECT processed_at FROM private.provider_events
          WHERE provider_event_id = 'evt-ciwave0002') IS NOT NULL THEN
     RAISE EXCEPTION 'Conflicting event hash was not quarantined correctly';
+  END IF;
+
+  IF (SELECT count(*) FROM private.provider_events
+      WHERE provider_event_id = 'evt-ciwavefail0001'
+        AND event_type = 'checkout.session.payment_failed'
+        AND processing_status = 'ignored'
+        AND last_error_code = 'checkout_payment_failed'
+        AND topup_id IS NULL) <> 1 THEN
+    RAISE EXCEPTION 'Failed checkout event was not durably recorded as ignored';
   END IF;
 
   IF has_function_privilege(
