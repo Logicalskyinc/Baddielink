@@ -9,6 +9,8 @@ INSERT INTO auth.users (id, email, email_confirmed_at)
 VALUES ('00000000-0000-0000-0000-000000000007', 'concurrency-sender@example.test', now());
 INSERT INTO public.profiles (id, moderation_status)
 VALUES ('00000000-0000-0000-0000-000000000007', 'approved');
+INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at)
+VALUES ('00000000-0000-0000-0000-000000000007', DATE '1990-01-01', now());
 
 DO $seed$
 DECLARE member_account uuid; issuance_account uuid; tx_id uuid;
