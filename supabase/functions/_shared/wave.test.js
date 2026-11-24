@@ -248,6 +248,55 @@ test("retrieves an existing checkout and revalidates all top-up identity fields"
   assert.equal(result.id, "cos-existing001");
 });
 
+
+test("signs outbound Wave POST and GET requests when request signing is enabled", async () => {
+  const requestSecret = "wave-api-request-signing-secret";
+  let postRequest;
+  await createWaveCheckoutSession({
+    apiKey: "sandbox-key",
+    requestSigningSecret: requestSecret,
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    successUrl: "https://example.com/success",
+    errorUrl: "https://example.com/error",
+    fetchImpl: async (url, options) => {
+      postRequest = { url, options };
+      return new Response(JSON.stringify({
+        id: "cos-signed001",
+        amount: "2500",
+        currency: "XOF",
+        client_reference: "baddielink-topup-001",
+        checkout_status: "open",
+        wave_launch_url: "https://pay.wave.com/c/cos-signed001",
+      }), { status: 200 });
+    },
+  });
+
+  const postSignature = parseWaveSignatureHeader(postRequest.options.headers["Wave-Signature"]);
+  const expectedPost = createHmac("sha256", requestSecret)
+    .update(String(postSignature.timestamp) + postRequest.options.body)
+    .digest("hex");
+  assert.equal(postSignature.signatures.includes(expectedPost), true);
+
+  let getRequest;
+  await searchWaveCheckoutByClientReference({
+    apiKey: "sandbox-key",
+    requestSigningSecret: requestSecret,
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    fetchImpl: async (url, options) => {
+      getRequest = { url, options };
+      return new Response(JSON.stringify({ result: [] }), { status: 200 });
+    },
+  });
+
+  const getSignature = parseWaveSignatureHeader(getRequest.options.headers["Wave-Signature"]);
+  const expectedGet = createHmac("sha256", requestSecret)
+    .update(String(getSignature.timestamp))
+    .digest("hex");
+  assert.equal(getSignature.signatures.includes(expectedGet), true);
+});
+
 test("does not leak provider response bodies on API errors", async () => {
   await assert.rejects(createWaveCheckoutSession({
     apiKey: "sandbox-key",
