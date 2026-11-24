@@ -39,7 +39,9 @@ CREATE TABLE private.gift_inventory_purchases (
   unit_price_blc bigint NOT NULL CHECK (unit_price_blc > 0),
   unit_face_value_xof bigint NOT NULL CHECK (unit_face_value_xof > 0),
   wallet_transaction_id uuid NOT NULL UNIQUE REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT gift_inventory_purchase_identity_unique
+    UNIQUE (id, buyer_user_id, gift_id)
 );
 
 CREATE TABLE private.gift_transactions (
@@ -57,7 +59,9 @@ CREATE TABLE private.gift_transactions (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT gift_transaction_split_conserves_value
     CHECK (recipient_share_xof + referral_share_xof + platform_share_xof = unit_face_value_xof),
-  CONSTRAINT gift_transaction_not_self_gift CHECK (sender_user_id <> recipient_user_id)
+  CONSTRAINT gift_transaction_not_self_gift CHECK (sender_user_id <> recipient_user_id),
+  CONSTRAINT gift_transactions_sender_identity_unique UNIQUE (id, sender_user_id),
+  CONSTRAINT gift_transactions_wallet_identity_unique UNIQUE (id, wallet_transaction_id)
 );
 
 CREATE INDEX gift_transactions_recipient_history_idx

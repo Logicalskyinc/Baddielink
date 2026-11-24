@@ -12,14 +12,17 @@ BEGIN;
 
 CREATE TABLE private.gift_inventory_funding_lots (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  purchase_id uuid NOT NULL UNIQUE
-    REFERENCES private.gift_inventory_purchases(id) ON DELETE RESTRICT,
+  purchase_id uuid NOT NULL UNIQUE,
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   gift_id uuid NOT NULL REFERENCES private.gift_catalog(id) ON DELETE RESTRICT,
   quantity_remaining integer NOT NULL CHECK (quantity_remaining >= 0),
   purchased_blc_remaining bigint NOT NULL CHECK (purchased_blc_remaining >= 0),
   referral_blc_remaining bigint NOT NULL CHECK (referral_blc_remaining >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT gift_inventory_funding_lot_purchase_identity_fk
+    FOREIGN KEY (purchase_id, user_id, gift_id)
+    REFERENCES private.gift_inventory_purchases(id, buyer_user_id, gift_id)
+    ON DELETE RESTRICT,
   CONSTRAINT gift_inventory_funding_lot_empty_check
     CHECK (quantity_remaining > 0 OR (purchased_blc_remaining = 0 AND referral_blc_remaining = 0))
 );
@@ -156,11 +159,12 @@ BEGIN
   FROM private.referral_attributions a
   JOIN auth.users ru ON ru.id = a.referrer_user_id
   JOIN public.profiles rp ON rp.id = a.referrer_user_id
+  JOIN public.user_private_settings ups ON ups.user_id = a.referrer_user_id
   WHERE a.referred_user_id = NEW.sender_user_id
     AND ru.email_confirmed_at IS NOT NULL
     AND rp.moderation_status NOT IN ('restricted', 'removed')
     AND private.is_adult_declared(a.referrer_user_id)
-  FOR SHARE OF a;
+  FOR SHARE OF a, ru, rp, ups;
 
   reward_blc := CASE
     WHEN attribution_id IS NOT NULL

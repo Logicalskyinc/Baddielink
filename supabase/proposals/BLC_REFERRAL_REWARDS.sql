@@ -12,16 +12,23 @@ CREATE TABLE private.referral_codes (
   owner_user_id uuid NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE RESTRICT,
   referral_code text NOT NULL UNIQUE,
   is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT referral_codes_id_owner_unique UNIQUE (id, owner_user_id)
 );
 
 CREATE TABLE private.referral_attributions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   referrer_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   referred_user_id uuid NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE RESTRICT,
-  referral_code_id uuid NOT NULL REFERENCES private.referral_codes(id) ON DELETE RESTRICT,
+  referral_code_id uuid NOT NULL,
   attributed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT referral_no_self_referral CHECK (referrer_user_id <> referred_user_id)
+  CONSTRAINT referral_no_self_referral CHECK (referrer_user_id <> referred_user_id),
+  CONSTRAINT referral_attributions_identity_unique
+    UNIQUE (id, referrer_user_id, referred_user_id),
+  CONSTRAINT referral_attribution_code_owner_fk
+    FOREIGN KEY (referral_code_id, referrer_user_id)
+    REFERENCES private.referral_codes(id, owner_user_id)
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX referral_attributions_referrer_idx
@@ -37,7 +44,21 @@ CREATE TABLE private.referral_rewards (
   reward_amount_blc bigint NOT NULL CHECK (reward_amount_blc > 0),
   wallet_transaction_id uuid NOT NULL UNIQUE REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT referral_reward_identity_check CHECK (referrer_user_id <> referred_user_id)
+  CONSTRAINT referral_reward_identity_check CHECK (referrer_user_id <> referred_user_id),
+  CONSTRAINT referral_reward_attribution_identity_fk
+    FOREIGN KEY (referral_attribution_id, referrer_user_id, referred_user_id)
+    REFERENCES private.referral_attributions(id, referrer_user_id, referred_user_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_gift_sender_identity_fk
+    FOREIGN KEY (gift_transaction_id, referred_user_id)
+    REFERENCES private.gift_transactions(id, sender_user_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_gift_wallet_identity_fk
+    FOREIGN KEY (gift_transaction_id, wallet_transaction_id)
+    REFERENCES private.gift_transactions(id, wallet_transaction_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_five_percent_check
+    CHECK (reward_amount_blc = floor(eligible_amount_xof * 5 / 100.0)::bigint)
 );
 
 CREATE INDEX referral_rewards_referrer_history_idx
@@ -52,6 +73,36 @@ REVOKE ALL ON TABLE
   private.referral_attributions,
   private.referral_rewards
 FROM PUBLIC, anon, authenticated;
+
+
+-- A referral code must be active when attribution is created. Lock the code
+-- row so concurrent deactivation cannot race attribution creation.
+CREATE OR REPLACE FUNCTION private.require_active_referral_code()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+DECLARE
+  code_is_active boolean;
+BEGIN
+  SELECT c.is_active INTO code_is_active
+  FROM private.referral_codes c
+  WHERE c.id = NEW.referral_code_id
+  FOR SHARE;
+
+  IF NOT FOUND OR NOT code_is_active THEN
+    RAISE EXCEPTION 'Referral code is invalid or inactive' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER referral_attributions_require_active_code
+  BEFORE INSERT ON private.referral_attributions
+  FOR EACH ROW EXECUTE FUNCTION private.require_active_referral_code();
+
+REVOKE ALL ON FUNCTION private.require_active_referral_code() FROM PUBLIC, anon, authenticated;
 
 -- A referral attribution is permanent. Correct fraud through a separate,
 -- audited reversal process; never rewrite the original referrer.

@@ -9,6 +9,38 @@ INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
   ('00000000-0000-0000-0000-000000000005', 'referral-only-sender@example.test', now()),
   ('00000000-0000-0000-0000-000000000006', 'rollback-sender@example.test', now());
 
+
+
+-- Wallet account identity must match its economic class.
+DO $account_ownership$
+BEGIN
+  BEGIN
+    INSERT INTO private.wallet_accounts (
+      owner_user_id, account_code, account_kind, unit, is_system
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000001',
+      'ci-invalid-member-platform-account',
+      'platform_xof_revenue', 'XOF', false
+    );
+    RAISE EXCEPTION 'Member-owned platform account was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  BEGIN
+    INSERT INTO private.wallet_accounts (
+      owner_user_id, account_code, account_kind, unit, is_system
+    ) VALUES (
+      NULL, 'ci-invalid-system-member-account',
+      'purchased_blc', 'BLC', true
+    );
+    RAISE EXCEPTION 'System-owned member account was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+END;
+$account_ownership$;
+
 INSERT INTO public.profiles (id, moderation_status) VALUES
   ('00000000-0000-0000-0000-000000000001', 'approved'),
   ('00000000-0000-0000-0000-000000000002', 'approved'),
@@ -16,6 +48,14 @@ INSERT INTO public.profiles (id, moderation_status) VALUES
   ('00000000-0000-0000-0000-000000000004', 'approved'),
   ('00000000-0000-0000-0000-000000000005', 'approved'),
   ('00000000-0000-0000-0000-000000000006', 'approved');
+
+INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at) VALUES
+  ('00000000-0000-0000-0000-000000000001', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000002', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000003', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000004', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000005', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000006', DATE '1990-01-01', now());
 
 INSERT INTO private.gift_catalog (
   id, gift_code, display_name, price_blc, face_value_xof, asset_key, is_active
@@ -50,6 +90,55 @@ INSERT INTO private.referral_attributions (
   '00000000-0000-0000-0000-000000000005',
   '20000000-0000-0000-0000-000000000001'
 );
+
+
+-- The referral code must belong to the declared referrer. A mismatched owner
+-- must be rejected by the composite foreign key.
+DO $test$
+BEGIN
+  BEGIN
+    INSERT INTO private.referral_attributions (
+      id, referrer_user_id, referred_user_id, referral_code_id
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000099',
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000003',
+      '20000000-0000-0000-0000-000000000001'
+    );
+    RAISE EXCEPTION 'Mismatched referral-code owner was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$test$;
+
+-- An inactive code cannot create a new attribution.
+INSERT INTO private.referral_codes (
+  id, owner_user_id, referral_code, is_active
+) VALUES (
+  '20000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000006',
+  'INACTIVE-CODE-006',
+  false
+);
+
+DO $test$
+BEGIN
+  BEGIN
+    INSERT INTO private.referral_attributions (
+      id, referrer_user_id, referred_user_id, referral_code_id
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000098',
+      '00000000-0000-0000-0000-000000000006',
+      '00000000-0000-0000-0000-000000000003',
+      '20000000-0000-0000-0000-000000000002'
+    );
+    RAISE EXCEPTION 'Inactive referral code was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+END;
+$test$;
 
 -- Seed 100 purchased BLC as a balanced, posted test credit.
 BEGIN;
@@ -316,6 +405,100 @@ BEGIN
 END;
 $ci$;
 
+-- Reward identity must match both the immutable attribution and the actual gift sender.
+DO $identity$
+DECLARE
+  referral_only_gift private.gift_transactions%ROWTYPE;
+  sender_two_attribution uuid;
+  sender_five_attribution uuid;
+  unrelated_wallet_transaction uuid;
+BEGIN
+  SELECT * INTO STRICT referral_only_gift
+  FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-referral-only-send-005';
+
+  SELECT id INTO STRICT sender_two_attribution
+  FROM private.referral_attributions
+  WHERE referred_user_id = '00000000-0000-0000-0000-000000000002';
+
+  SELECT id INTO STRICT sender_five_attribution
+  FROM private.referral_attributions
+  WHERE referred_user_id = '00000000-0000-0000-0000-000000000005';
+
+  -- Wrong referrer for an otherwise matching attribution and gift sender.
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 20, 1, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Mismatched reward referrer was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+
+  -- The reward wallet transaction must be the same transaction that settled this gift.
+  SELECT id INTO STRICT unrelated_wallet_transaction
+  FROM private.wallet_transactions
+  WHERE idempotency_key = 'ci-seed-purchased-credit-001';
+
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 20, 1, unrelated_wallet_transaction
+    );
+    RAISE EXCEPTION 'Reward linked to an unrelated wallet transaction was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+
+  -- Reward amount must equal floor(eligible amount * 5%).
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 100, 4, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Incorrect five-percent reward amount was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  -- Attribution identity matches, but the gift was sent by a different member.
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_two_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000002',
+      referral_only_gift.id, 20, 1, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Reward for a gift sent by another member was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$identity$;
+
 -- Force a failure inside the AFTER INSERT provenance trigger, after settlement
 -- has decremented inventory and written draft ledger rows. The statement must
 -- roll back every write, including the inventory decrement.
@@ -375,6 +558,32 @@ SELECT public.send_gift(
 RESET ROLE;
 COMMIT;
 
+-- Reusing a completed gift-send key with a different recipient must be rejected.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+SET LOCAL ROLE authenticated;
+DO $send_idempotency_mismatch$
+BEGIN
+  BEGIN
+    PERFORM public.send_gift(
+      '00000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000001',
+      'ci-gift-send-001'
+    );
+    RAISE EXCEPTION 'TEST_EXPECTED_SEND_IDEMPOTENCY_REJECTION';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'TEST_EXPECTED_SEND_IDEMPOTENCY_REJECTION' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM <> 'Idempotency key already used for another operation' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$send_idempotency_mismatch$;
+RESET ROLE;
+ROLLBACK;
+
 DO $$
 BEGIN
   IF (SELECT count(*) FROM private.gift_transactions) <> 3
@@ -425,3 +634,564 @@ END;
 $$;
 
 SELECT 'BLC PostgreSQL integration tests passed' AS result;
+
+
+-- Boundary case: 5% of 19 XOF rounds down to zero. It must not create a
+-- zero-value referral reward or reduce the platform commission.
+INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000007', 'rounding-sender@example.test', now()),
+  ('00000000-0000-0000-0000-000000000008', 'fifo-sender@example.test', now());
+
+INSERT INTO public.profiles (id, moderation_status) VALUES
+  ('00000000-0000-0000-0000-000000000007', 'approved'),
+  ('00000000-0000-0000-0000-000000000008', 'approved');
+
+INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at) VALUES
+  ('00000000-0000-0000-0000-000000000007', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000008', DATE '1990-01-01', now());
+
+INSERT INTO private.referral_attributions (
+  id, referrer_user_id, referred_user_id, referral_code_id
+) VALUES
+  ('30000000-0000-0000-0000-000000000007',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000007',
+   '20000000-0000-0000-0000-000000000001'),
+  ('30000000-0000-0000-0000-000000000008',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000008',
+   '20000000-0000-0000-0000-000000000001');
+
+INSERT INTO private.gift_catalog (
+  id, gift_code, display_name, price_blc, face_value_xof, asset_key, is_active
+) VALUES (
+  '10000000-0000-0000-0000-000000000019',
+  'ci-test-small-gift', 'CI Test Small Gift', 19, 19, 'test/small-gift.svg', true
+);
+
+-- Seed user 7 with 19 purchased BLC.
+DO $rounding_seed$
+DECLARE
+  member_account uuid;
+  issuance_account uuid;
+  tx_id uuid;
+BEGIN
+  member_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000007', 'purchased_blc', 'BLC'
+  );
+  SELECT id INTO issuance_account FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-rounding-seed-007',
+          '00000000-0000-0000-0000-000000000007')
+  RETURNING id INTO tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES (tx_id, member_account, 'BLC', 19),
+         (tx_id, issuance_account, 'BLC', -19);
+END;
+$rounding_seed$;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000019', 1, 'ci-rounding-purchase-007'
+);
+RESET ROLE;
+COMMIT;
+
+-- Reusing a purchase key with a different quantity must be rejected.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+DO $purchase_idempotency_mismatch$
+BEGIN
+  BEGIN
+    PERFORM public.purchase_gift_inventory(
+      '10000000-0000-0000-0000-000000000019', 2, 'ci-rounding-purchase-007'
+    );
+    RAISE EXCEPTION 'TEST_EXPECTED_PURCHASE_IDEMPOTENCY_REJECTION';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'TEST_EXPECTED_PURCHASE_IDEMPOTENCY_REJECTION' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM <> 'Idempotency key already used for another purchase' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$purchase_idempotency_mismatch$;
+RESET ROLE;
+ROLLBACK;
+
+-- Funding provenance lot identity must match its source purchase.
+DO $funding_lot_identity$
+DECLARE
+  test_purchase_id uuid;
+BEGIN
+  SELECT id INTO STRICT test_purchase_id
+  FROM private.gift_inventory_purchases
+  WHERE wallet_transaction_id = (
+    SELECT id FROM private.wallet_transactions
+    WHERE idempotency_key = 'ci-rounding-purchase-007'
+  );
+
+  BEGIN
+    UPDATE private.gift_inventory_funding_lots AS lot
+    SET user_id = '00000000-0000-0000-0000-000000000008'
+    WHERE lot.purchase_id = test_purchase_id;
+    RAISE EXCEPTION 'Mismatched funding-lot owner was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$funding_lot_identity$;
+
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000019',
+  'ci-rounding-send-007'
+);
+RESET ROLE;
+COMMIT;
+
+DO $rounding_assert$
+DECLARE
+  gift_row private.gift_transactions%ROWTYPE;
+BEGIN
+  SELECT * INTO STRICT gift_row FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-rounding-send-007';
+
+  IF gift_row.recipient_share_xof <> 13
+     OR gift_row.referral_share_xof <> 0
+     OR gift_row.platform_share_xof <> 6 THEN
+    RAISE EXCEPTION 'Small gift rounding split incorrect';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.referral_rewards
+    WHERE gift_transaction_id = gift_row.id
+  ) THEN
+    RAISE EXCEPTION 'A zero-rounded referral reward row was created';
+  END IF;
+END;
+$rounding_assert$;
+
+-- FIFO and integer-remainder boundary: first buy one referral-funded unit,
+-- then buy two mixed-funded units. The first send must consume the referral-only
+-- lot; the next two consume purchased portions of 50 and 51 BLC respectively.
+DO $fifo_seed$
+DECLARE
+  purchased_account uuid;
+  referral_account uuid;
+  issuance_account uuid;
+  revenue_account uuid;
+  referral_funding_account uuid;
+  tx_id uuid;
+BEGIN
+  purchased_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000008', 'purchased_blc', 'BLC'
+  );
+  referral_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000008', 'referral_blc', 'BLC'
+  );
+  SELECT id INTO issuance_account FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+  SELECT id INTO revenue_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-platform-revenue';
+  SELECT id INTO referral_funding_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-referral-funding';
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-fifo-seed-008',
+          '00000000-0000-0000-0000-000000000008')
+  RETURNING id INTO tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (tx_id, purchased_account, 'BLC', 101),
+    (tx_id, referral_account, 'BLC', 199),
+    (tx_id, issuance_account, 'BLC', -300),
+    (tx_id, revenue_account, 'XOF', -199),
+    (tx_id, referral_funding_account, 'XOF', 199);
+END;
+$fifo_seed$;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000001', 1, 'ci-fifo-referral-lot-008'
+);
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000001', 2, 'ci-fifo-mixed-lot-008'
+);
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-first-008'
+);
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-second-008'
+);
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-third-008'
+);
+RESET ROLE;
+COMMIT;
+
+DO $fifo_assert$
+DECLARE
+  first_gift private.gift_transactions%ROWTYPE;
+  second_gift private.gift_transactions%ROWTYPE;
+  third_gift private.gift_transactions%ROWTYPE;
+  first_lot_qty integer;
+  second_lot_qty integer;
+  second_lot_purchased bigint;
+  second_lot_referral bigint;
+BEGIN
+  SELECT * INTO STRICT first_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-first-008';
+  SELECT * INTO STRICT second_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-second-008';
+  SELECT * INTO STRICT third_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-third-008';
+
+  IF first_gift.referral_share_xof <> 0 THEN
+    RAISE EXCEPTION 'FIFO did not consume the older referral-only lot first';
+  END IF;
+
+  IF second_gift.referral_share_xof <> 2
+     OR third_gift.referral_share_xof <> 2 THEN
+    RAISE EXCEPTION 'Mixed-lot purchased portions or final-unit remainder were allocated incorrectly';
+  END IF;
+
+  SELECT quantity_remaining INTO first_lot_qty
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-fifo-referral-lot-008'
+    )
+  );
+
+  SELECT quantity_remaining, purchased_blc_remaining, referral_blc_remaining
+    INTO second_lot_qty, second_lot_purchased, second_lot_referral
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-fifo-mixed-lot-008'
+    )
+  );
+
+  IF first_lot_qty <> 0
+     OR second_lot_qty <> 0
+     OR second_lot_purchased <> 0
+     OR second_lot_referral <> 0 THEN
+    RAISE EXCEPTION 'FIFO funding lots or source balances were not fully consumed';
+  END IF;
+END;
+$fifo_assert$;
+
+SELECT 'BLC funding boundary integration tests passed' AS result;
+
+
+-- Dedicated referral-code owner for lifecycle API tests.
+INSERT INTO auth.users (id, email, email_confirmed_at)
+VALUES ('00000000-0000-0000-0000-000000000012',
+        'lifecycle-code-owner@example.test', now());
+
+-- Referral lifecycle API: authenticated members can retrieve one stable code,
+-- while the database owns the code identity and owner binding.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000012', true);
+SET LOCAL ROLE authenticated;
+SELECT public.get_my_referral_code();
+SELECT public.get_my_referral_code();
+RESET ROLE;
+COMMIT;
+
+DO $referral_code_generation_assert$
+DECLARE generated_code text;
+BEGIN
+  SELECT referral_code INTO STRICT generated_code
+  FROM private.referral_codes
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
+
+  IF generated_code !~ '^[A-F0-9]{24}$' THEN
+    RAISE EXCEPTION 'Generated referral code format is invalid: %', generated_code;
+  END IF;
+
+  IF (SELECT count(*) FROM private.referral_codes
+      WHERE owner_user_id = '00000000-0000-0000-0000-000000000012') <> 1 THEN
+    RAISE EXCEPTION 'Repeated code retrieval created duplicate referral codes';
+  END IF;
+END;
+$referral_code_generation_assert$;
+
+-- Signup metadata supplies only a code. The database resolves and records the
+-- actual owner atomically with auth.users insertion.
+INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+VALUES (
+  '00000000-0000-0000-0000-000000000010',
+  'lifecycle-valid-signup@example.test',
+  now(),
+  '{"referral_code":"  referrertest01  "}'::jsonb
+);
+
+DO $referral_signup_assert$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM private.referral_attributions
+    WHERE referred_user_id = '00000000-0000-0000-0000-000000000010'
+      AND referrer_user_id = '00000000-0000-0000-0000-000000000001'
+      AND referral_code_id = '20000000-0000-0000-0000-000000000001'
+  ) THEN
+    RAISE EXCEPTION 'Valid signup referral code did not create correct attribution';
+  END IF;
+END;
+$referral_signup_assert$;
+
+-- Invalid code must roll back the auth.users insert as part of the same
+-- transaction. No orphan account may be left behind.
+DO $invalid_signup_assert$
+BEGIN
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000011',
+      'lifecycle-invalid-signup@example.test',
+      now(),
+      '{"referral_code":"NOT-A-REAL-CODE"}'::jsonb
+    );
+    RAISE EXCEPTION 'Signup with invalid referral code unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000011') THEN
+    RAISE EXCEPTION 'Invalid referral signup left an auth.users row behind';
+  END IF;
+END;
+$invalid_signup_assert$;
+
+-- Inactive codes must fail signup atomically. Omitting a code remains valid
+-- and creates no attribution.
+DO $inactive_signup_assert$
+BEGIN
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000013',
+      'lifecycle-inactive-signup@example.test',
+      now(),
+      '{"referral_code":"INACTIVE-CODE-006"}'::jsonb
+    );
+    RAISE EXCEPTION 'Signup with inactive referral code unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000013') THEN
+    RAISE EXCEPTION 'Inactive referral signup left an auth.users row behind';
+  END IF;
+END;
+$inactive_signup_assert$;
+
+INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+VALUES (
+  '00000000-0000-0000-0000-000000000014',
+  'lifecycle-no-code-signup@example.test',
+  now(),
+  '{}'::jsonb
+);
+
+DO $no_code_signup_assert$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.referral_attributions
+             WHERE referred_user_id = '00000000-0000-0000-0000-000000000014') THEN
+    RAISE EXCEPTION 'Signup without a referral code unexpectedly created attribution';
+  END IF;
+END;
+$no_code_signup_assert$;
+
+-- The member-facing dashboard returns only aggregate totals and the
+-- authenticated owner's own code status.
+DO $referral_dashboard_rpc_assert$
+DECLARE
+  code_value text;
+  active_value boolean;
+  summary_row record;
+  expected_total bigint;
+  expected_rewarded bigint;
+  expected_rewards bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000012', true);
+
+  SELECT referral_code, is_active
+    INTO STRICT code_value, active_value
+  FROM public.get_my_referral_code_status();
+
+  IF length(code_value) <> 24 OR code_value !~ '^[A-F0-9]+$'
+     OR active_value IS NOT TRUE THEN
+    RAISE EXCEPTION 'Referral dashboard did not return the owner active code';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000001', true);
+
+  SELECT * INTO STRICT summary_row
+  FROM public.get_my_referral_summary();
+
+  SELECT count(DISTINCT a.id),
+         count(DISTINCT r.referral_attribution_id),
+         coalesce(sum(r.reward_amount_blc), 0)
+    INTO expected_total, expected_rewarded, expected_rewards
+  FROM private.referral_attributions a
+  LEFT JOIN private.referral_rewards r ON r.referral_attribution_id = a.id
+  WHERE a.referrer_user_id = '00000000-0000-0000-0000-000000000001';
+
+  IF summary_row.total_referrals <> expected_total
+     OR summary_row.rewarded_referrals <> expected_rewarded
+     OR summary_row.pending_referrals <> expected_total - expected_rewarded
+     OR summary_row.total_rewards_blc <> expected_rewards THEN
+    RAISE EXCEPTION 'Referral dashboard aggregate values do not reconcile';
+  END IF;
+END;
+$referral_dashboard_rpc_assert$;
+
+-- Deactivation is owner-scoped, idempotent and irreversible.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000012', true);
+SET LOCAL ROLE authenticated;
+SELECT public.deactivate_my_referral_code();
+SELECT public.deactivate_my_referral_code();
+RESET ROLE;
+COMMIT;
+
+DO $referral_deactivation_assert$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM private.referral_codes
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012'
+      AND is_active = true
+  ) THEN
+    RAISE EXCEPTION 'Referral code remained active after deactivation';
+  END IF;
+
+  BEGIN
+    UPDATE private.referral_codes
+    SET is_active = true
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
+    RAISE EXCEPTION 'Reactivation of a deactivated referral code was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'Referral-code identity is immutable%' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$referral_deactivation_assert$;
+
+-- The public API must not be callable by anonymous users.
+DO $referral_permissions_assert$
+BEGIN
+  IF has_function_privilege('anon', 'public.get_my_referral_code()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_summary()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Anonymous role can execute referral lifecycle functions';
+  END IF;
+
+  IF NOT has_function_privilege('authenticated', 'public.get_my_referral_code()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_summary()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute referral lifecycle functions';
+  END IF;
+END;
+$referral_permissions_assert$;
+
+SELECT 'BLC referral lifecycle integration tests passed' AS result;
+
+
+-- Privacy boundary: a member's summary must not expose another owner's
+-- referral activity. Owner 12 has a code but no attributed signups; owner 1
+-- has existing referrals in this fixture.
+DO $referral_dashboard_privacy_assert$
+DECLARE summary_row record;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000012', true);
+
+  SELECT * INTO STRICT summary_row
+  FROM public.get_my_referral_summary();
+
+  IF summary_row.total_referrals <> 0
+     OR summary_row.rewarded_referrals <> 0
+     OR summary_row.pending_referrals <> 0
+     OR summary_row.total_rewards_blc <> 0 THEN
+    RAISE EXCEPTION 'Referral dashboard exposed another member''s activity';
+  END IF;
+END;
+$referral_dashboard_privacy_assert$;
+
+-- Self-referral must fail even when a member submits their own valid code
+-- through signup metadata. The auth.users insert must roll back atomically.
+DO $referral_self_signup_assert$
+DECLARE own_code text;
+BEGIN
+  SELECT referral_code INTO STRICT own_code
+  FROM private.referral_codes
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
+
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000015',
+      'lifecycle-self-signup@example.test',
+      now(),
+      pg_catalog.jsonb_build_object('referral_code', own_code)
+    );
+    RAISE EXCEPTION 'Self-referral signup unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000015') THEN
+    RAISE EXCEPTION 'Self-referral signup left an auth.users row behind';
+  END IF;
+END;
+$referral_self_signup_assert$;
+
+SELECT 'BLC referral privacy and self-referral tests passed' AS result;

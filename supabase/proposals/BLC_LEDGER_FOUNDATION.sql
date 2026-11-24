@@ -29,6 +29,24 @@ CREATE TABLE private.wallet_accounts (
     (is_system AND owner_user_id IS NULL)
     OR (NOT is_system AND owner_user_id IS NOT NULL)
   ),
+  CONSTRAINT wallet_accounts_kind_ownership_check CHECK (
+    (
+      account_kind IN ('purchased_blc', 'referral_blc', 'recipient_earnings_xof')
+      AND NOT is_system
+      AND owner_user_id IS NOT NULL
+    )
+    OR (
+      account_kind IN (
+        'platform_blc_issuance',
+        'platform_xof_gift_clearing',
+        'platform_xof_revenue',
+        'platform_xof_referral_funding',
+        'platform_xof_gift_inventory_liability'
+      )
+      AND is_system
+      AND owner_user_id IS NULL
+    )
+  ),
   CONSTRAINT wallet_accounts_kind_unit_check CHECK (
     (account_kind IN ('purchased_blc', 'referral_blc', 'platform_blc_issuance') AND unit = 'BLC')
     OR (account_kind IN (
