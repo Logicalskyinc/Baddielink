@@ -8,7 +8,7 @@
 DO $wave_inventory_provenance$
 DECLARE
   v_user uuid := '00000000-0000-0000-0000-000000000013';
-  v_provider uuid := '90000000-0000-0000-0000-000000000001';
+  v_provider uuid;
   v_gift_id uuid;
   v_price bigint;
   v_amount bigint;
@@ -24,6 +24,12 @@ DECLARE
   v_allocated bigint;
   v_source_remaining bigint;
 BEGIN
+  SELECT id INTO STRICT v_provider
+  FROM private.payment_provider_accounts
+  WHERE provider_code = 'wave' AND environment = 'sandbox'
+  ORDER BY created_at, id
+  LIMIT 1;
+
   INSERT INTO auth.users (id, email, email_confirmed_at)
   VALUES (v_user, 'wave-provenance@example.test', now());
 
