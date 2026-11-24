@@ -18,7 +18,8 @@ CREATE SCHEMA IF NOT EXISTS private;
 CREATE TABLE auth.users (
   id uuid PRIMARY KEY,
   email text UNIQUE,
-  email_confirmed_at timestamptz
+  email_confirmed_at timestamptz,
+  raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE OR REPLACE FUNCTION auth.uid()
