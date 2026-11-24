@@ -955,60 +955,8 @@ BEGIN
     INTO STRICT code_value, active_value
   FROM public.get_my_referral_code_status();
 
-  IF code_value !~ '^[A-F0-9]{24}
-BEGIN;
-SELECT set_config('request.jwt.claim.sub',
-  '00000000-0000-0000-0000-000000000012', true);
-SET LOCAL ROLE authenticated;
-SELECT public.deactivate_my_referral_code();
-SELECT public.deactivate_my_referral_code();
-RESET ROLE;
-COMMIT;
-
-DO $referral_deactivation_assert$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM private.referral_codes
-    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012'
-      AND is_active = true
-  ) THEN
-    RAISE EXCEPTION 'Referral code remained active after deactivation';
-  END IF;
-
-  BEGIN
-    UPDATE private.referral_codes
-    SET is_active = true
-    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
-    RAISE EXCEPTION 'Reactivation of a deactivated referral code was accepted';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM NOT LIKE 'Referral-code identity is immutable%' THEN
-      RAISE;
-    END IF;
-  END;
-END;
-$referral_deactivation_assert$;
-
--- The public API must not be callable by anonymous users.
-DO $referral_permissions_assert$
-BEGIN
-  IF has_function_privilege('anon', 'public.get_my_referral_code()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.get_my_referral_code_status()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.get_my_referral_summary()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Anonymous role can execute referral lifecycle functions';
-  END IF;
-
-  IF NOT has_function_privilege('authenticated', 'public.get_my_referral_code()', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_code_status()', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_summary()', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Authenticated role cannot execute referral lifecycle functions';
-  END IF;
-END;
-$referral_permissions_assert$;
-
-SELECT 'BLC referral lifecycle integration tests passed' AS result;
- OR active_value IS NOT TRUE THEN
+  IF length(code_value) <> 24 OR code_value !~ '^[A-F0-9]+$'
+     OR active_value IS NOT TRUE THEN
     RAISE EXCEPTION 'Referral dashboard did not return the owner active code';
   END IF;
 
@@ -1072,11 +1020,15 @@ $referral_deactivation_assert$;
 DO $referral_permissions_assert$
 BEGIN
   IF has_function_privilege('anon', 'public.get_my_referral_code()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_summary()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
     RAISE EXCEPTION 'Anonymous role can execute referral lifecycle functions';
   END IF;
 
   IF NOT has_function_privilege('authenticated', 'public.get_my_referral_code()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_summary()', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
     RAISE EXCEPTION 'Authenticated role cannot execute referral lifecycle functions';
   END IF;
