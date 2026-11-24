@@ -181,6 +181,7 @@ Deno.serve(async (request: Request) => {
   try {
     const session = await retrieveWaveCheckoutSession({
       apiKey: waveApiKey,
+      requestSigningSecret: waveRequestSigningSecret,
       checkoutSessionId: data.id,
       amountXof: Number(amountString),
       clientReference: data.client_reference,
