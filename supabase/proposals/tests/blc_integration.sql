@@ -689,15 +689,9 @@ BEGIN
   );
 
   BEGIN
-    INSERT INTO private.gift_inventory_funding_lots (
-      purchase_id, user_id, gift_id, quantity_remaining,
-      purchased_blc_remaining, referral_blc_remaining
-    ) VALUES (
-      purchase_id,
-      '00000000-0000-0000-0000-000000000008',
-      '10000000-0000-0000-0000-000000000019',
-      1, 19, 0
-    );
+    UPDATE private.gift_inventory_funding_lots
+    SET user_id = '00000000-0000-0000-0000-000000000008'
+    WHERE purchase_id = purchase_id;
     RAISE EXCEPTION 'Mismatched funding-lot owner was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
     NULL;
