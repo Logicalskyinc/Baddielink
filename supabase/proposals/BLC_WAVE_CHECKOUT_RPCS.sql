@@ -3,7 +3,27 @@
 -- attach checkout references. They do not credit BLC or verify payment.
 BEGIN;
 
-CREATE OR REPLACE FUNCTION public.create_wave_topup(p_amount_xof bigint)
+CREATE TABLE private.blc_checkout_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
+  idempotency_key text NOT NULL CHECK (length(btrim(idempotency_key)) BETWEEN 16 AND 128),
+  amount_xof bigint NOT NULL CHECK (amount_xof > 0),
+  topup_id uuid NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT blc_checkout_requests_topup_owner_fk
+    FOREIGN KEY (topup_id, user_id)
+    REFERENCES private.blc_topups(id, user_id) ON DELETE RESTRICT,
+  CONSTRAINT blc_checkout_requests_user_key_unique
+    UNIQUE (user_id, idempotency_key)
+);
+
+ALTER TABLE private.blc_checkout_requests ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.blc_checkout_requests FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.create_wave_topup(
+  p_amount_xof bigint,
+  p_idempotency_key text
+)
 RETURNS TABLE (
   topup_id uuid,
   provider_account_id uuid,
@@ -19,6 +39,11 @@ DECLARE
   v_provider_id uuid;
   v_topup_id uuid;
   v_reference text;
+  v_existing_topup_id uuid;
+  v_existing_provider_id uuid;
+  v_existing_reference text;
+  v_existing_amount bigint;
+  v_existing_status text;
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
@@ -27,6 +52,42 @@ BEGIN
   IF p_amount_xof IS NULL OR p_amount_xof <= 0 THEN
     RAISE EXCEPTION 'Top-up amount must be a positive XOF integer'
       USING ERRCODE = '22023';
+  END IF;
+
+  IF p_idempotency_key IS NULL
+     OR length(btrim(p_idempotency_key)) NOT BETWEEN 16 AND 128 THEN
+    RAISE EXCEPTION 'A 16 to 128 character idempotency key is required'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(v_user_id::text || ':' || p_idempotency_key, 0)
+  );
+
+  SELECT r.topup_id, r.amount_xof, t.provider_account_id,
+         t.client_reference, t.status
+    INTO v_existing_topup_id, v_existing_amount, v_existing_provider_id,
+         v_existing_reference, v_existing_status
+  FROM private.blc_checkout_requests r
+  JOIN private.blc_topups t ON t.id = r.topup_id
+  WHERE r.user_id = v_user_id
+    AND r.idempotency_key = p_idempotency_key
+  FOR UPDATE OF r, t;
+
+  IF FOUND THEN
+    IF v_existing_amount <> p_amount_xof THEN
+      RAISE EXCEPTION 'Idempotency key was already used with a different amount'
+        USING ERRCODE = '22023';
+    END IF;
+
+    IF v_existing_status IN ('failed', 'expired', 'cancelled', 'review_required') THEN
+      RAISE EXCEPTION 'This checkout request is no longer reusable; create a new request key'
+        USING ERRCODE = '55000';
+    END IF;
+
+    RETURN QUERY SELECT v_existing_topup_id, v_existing_provider_id,
+                        v_existing_reference, v_existing_amount;
+    RETURN;
   END IF;
 
   SELECT p.id INTO v_provider_id
@@ -54,6 +115,12 @@ BEGIN
     v_user_id, v_provider_id, p_amount_xof, p_amount_xof,
     1, 1, 'created', v_reference
   ) RETURNING id INTO v_topup_id;
+
+  INSERT INTO private.blc_checkout_requests (
+    user_id, idempotency_key, amount_xof, topup_id
+  ) VALUES (
+    v_user_id, p_idempotency_key, p_amount_xof, v_topup_id
+  );
 
   RETURN QUERY SELECT v_topup_id, v_provider_id, v_reference, p_amount_xof;
 END;
@@ -136,10 +203,10 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.create_wave_topup(bigint) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.create_wave_topup(bigint, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.attach_wave_checkout_session(uuid, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fail_wave_topup_checkout(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.create_wave_topup(bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_wave_topup(bigint, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.attach_wave_checkout_session(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fail_wave_topup_checkout(uuid) TO authenticated;
 
