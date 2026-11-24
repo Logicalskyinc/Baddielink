@@ -813,3 +813,130 @@ END;
 $fifo_assert$;
 
 SELECT 'BLC funding boundary integration tests passed' AS result;
+
+
+-- Referral lifecycle API: authenticated members can retrieve one stable code,
+-- while the database owns the code identity and owner binding.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000009', true);
+SET LOCAL ROLE authenticated;
+SELECT public.get_my_referral_code();
+SELECT public.get_my_referral_code();
+RESET ROLE;
+COMMIT;
+
+DO $referral_code_generation_assert$
+DECLARE generated_code text;
+BEGIN
+  SELECT referral_code INTO STRICT generated_code
+  FROM private.referral_codes
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000009';
+
+  IF generated_code !~ '^[A-F0-9]{24}$' THEN
+    RAISE EXCEPTION 'Generated referral code format is invalid: %', generated_code;
+  END IF;
+
+  IF (SELECT count(*) FROM private.referral_codes
+      WHERE owner_user_id = '00000000-0000-0000-0000-000000000009') <> 1 THEN
+    RAISE EXCEPTION 'Repeated code retrieval created duplicate referral codes';
+  END IF;
+END;
+$referral_code_generation_assert$;
+
+-- Signup metadata supplies only a code. The database resolves and records the
+-- actual owner atomically with auth.users insertion.
+INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+VALUES (
+  '00000000-0000-0000-0000-000000000010',
+  'lifecycle-valid-signup@example.test',
+  now(),
+  '{"referral_code":"  referrertest01  "}'::jsonb
+);
+
+DO $referral_signup_assert$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM private.referral_attributions
+    WHERE referred_user_id = '00000000-0000-0000-0000-000000000010'
+      AND referrer_user_id = '00000000-0000-0000-0000-000000000001'
+      AND referral_code_id = '20000000-0000-0000-0000-000000000001'
+  ) THEN
+    RAISE EXCEPTION 'Valid signup referral code did not create correct attribution';
+  END IF;
+END;
+$referral_signup_assert$;
+
+-- Invalid code must roll back the auth.users insert as part of the same
+-- transaction. No orphan account may be left behind.
+DO $invalid_signup_assert$
+BEGIN
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000011',
+      'lifecycle-invalid-signup@example.test',
+      now(),
+      '{"referral_code":"NOT-A-REAL-CODE"}'::jsonb
+    );
+    RAISE EXCEPTION 'Signup with invalid referral code unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000011') THEN
+    RAISE EXCEPTION 'Invalid referral signup left an auth.users row behind';
+  END IF;
+END;
+$invalid_signup_assert$;
+
+-- Deactivation is owner-scoped, idempotent and irreversible.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000009', true);
+SET LOCAL ROLE authenticated;
+SELECT public.deactivate_my_referral_code();
+SELECT public.deactivate_my_referral_code();
+RESET ROLE;
+COMMIT;
+
+DO $referral_deactivation_assert$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM private.referral_codes
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000009'
+      AND is_active = true
+  ) THEN
+    RAISE EXCEPTION 'Referral code remained active after deactivation';
+  END IF;
+
+  BEGIN
+    UPDATE private.referral_codes
+    SET is_active = true
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000009';
+    RAISE EXCEPTION 'Reactivation of a deactivated referral code was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'Referral-code identity is immutable%' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$referral_deactivation_assert$;
+
+-- The public API must not be callable by anonymous users.
+DO $referral_permissions_assert$
+BEGIN
+  IF has_function_privilege('anon', 'public.get_my_referral_code()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Anonymous role can execute referral lifecycle functions';
+  END IF;
+
+  IF NOT has_function_privilege('authenticated', 'public.get_my_referral_code()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute referral lifecycle functions';
+  END IF;
+END;
+$referral_permissions_assert$;
+
+SELECT 'BLC referral lifecycle integration tests passed' AS result;
