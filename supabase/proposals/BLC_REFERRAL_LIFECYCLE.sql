@@ -162,6 +162,30 @@ $function$;
 REVOKE ALL ON FUNCTION public.get_my_referral_summary() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_my_referral_summary() TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.get_my_referral_code_status()
+RETURNS TABLE (referral_code text, is_active boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  caller_id uuid;
+BEGIN
+  caller_id := auth.uid();
+  IF caller_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
+  END IF;
+
+  RETURN QUERY
+  SELECT c.referral_code, c.is_active
+  FROM private.referral_codes c
+  WHERE c.owner_user_id = caller_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_my_referral_code_status() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_referral_code_status() TO authenticated;
+
 -- Code identity is permanent. The only permitted update is active -> inactive.
 CREATE OR REPLACE FUNCTION private.guard_referral_code_lifecycle()
 RETURNS trigger
