@@ -108,6 +108,12 @@ jobs:
       - name: Run Wave checkout RPC tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_wave_checkout_rpcs.sql
 
+      - name: Apply atomic Wave webhook processing proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_WEBHOOK_PROCESSING.sql
+
+      - name: Run Wave webhook accounting and replay tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_wave_webhook_processing.sql
+
       - name: Apply Wave purchased-funding provenance proposal
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_GIFT_PROVENANCE.sql
 
