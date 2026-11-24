@@ -102,7 +102,10 @@ Deno.serve(async (request: Request) => {
     const raw = await readBodyBounded(request, 4096);
     if (raw === null) return reply(400, { error: "empty_request" }, cors);
     body = JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return reply(413, { error: "request_too_large" }, cors);
+    }
     return reply(400, { error: "invalid_json" }, cors);
   }
 
