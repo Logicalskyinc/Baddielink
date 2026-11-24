@@ -194,3 +194,16 @@
 .gift-preview-card .button:disabled{opacity:.55;cursor:not-allowed}
 .gift-preview-notice{margin-top:16px}
 @media(max-width:650px){.gift-preview-grid{grid-template-columns:1fr 1fr;gap:9px}.gift-preview-card{padding:15px 10px}.gift-preview-art{width:60px;height:60px;font-size:32px}.gift-preview-card p{min-height:48px}.gift-preview-card .button{padding:8px 5px;font-size:9px}}
+
+
+/* v1 member workspace foundation */
+body.authenticated > .topbar{display:none}
+.profile-wallet-shortcut{width:100%;display:flex;align-items:center;gap:14px;margin-top:16px;padding:17px 18px;text-align:left;border:1px solid #684052;border-radius:15px;background:linear-gradient(110deg,#392331,#24202b);color:var(--text)}
+.profile-wallet-icon{width:44px;height:44px;display:grid;place-items:center;flex:none;border-radius:13px;background:#e9588422;color:var(--pink2);font-size:25px}
+.profile-wallet-copy{display:grid;gap:5px;min-width:0}
+.profile-wallet-copy strong{font-size:13px}
+.profile-wallet-copy small{font-size:10px;line-height:1.5;color:var(--muted)}
+.profile-wallet-action{margin-left:auto;flex:none;color:#ffc0d1;font-size:10px;font-weight:700}
+.profile-wallet-shortcut:hover{border-color:var(--pink);background:linear-gradient(110deg,#452637,#292330)}
+.profile-wallet-shortcut:focus-visible{outline:2px solid var(--pink2);outline-offset:3px}
+@media(max-width:650px){.profile-wallet-shortcut{gap:10px;padding:14px 12px}.profile-wallet-icon{width:40px;height:40px}.profile-wallet-copy strong{font-size:12px}.profile-wallet-copy small{font-size:9px}.profile-wallet-action{font-size:9px}}
