@@ -1,0 +1,49 @@
+name: Production schema-only export
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baddielink-production-schema-export
+  cancel-in-progress: false
+
+jobs:
+  export-schema:
+    name: Export production schema (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check database connection secret
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Repository secret PROD_DATABASE_URL is not configured."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Export schema with Supabase CLI
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          npx --yes supabase@latest db dump --db-url "$DATABASE_URL" -f production-schema.sql
+          test -s production-schema.sql
+          sha256sum production-schema.sql > production-schema.sha256
+
+      - name: Upload schema-only export
+        uses: actions/upload-artifact@v4
+        with:
+          name: baddielink-production-schema-only
+          path: |
+            production-schema.sql
+            production-schema.sha256
+          if-no-files-found: error
+          retention-days: 1
