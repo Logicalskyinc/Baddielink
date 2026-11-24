@@ -57,7 +57,8 @@ CREATE TABLE private.gift_transactions (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT gift_transaction_split_conserves_value
     CHECK (recipient_share_xof + referral_share_xof + platform_share_xof = unit_face_value_xof),
-  CONSTRAINT gift_transaction_not_self_gift CHECK (sender_user_id <> recipient_user_id)
+  CONSTRAINT gift_transaction_not_self_gift CHECK (sender_user_id <> recipient_user_id),
+  CONSTRAINT gift_transactions_sender_identity_unique UNIQUE (id, sender_user_id)
 );
 
 CREATE INDEX gift_transactions_recipient_history_idx
