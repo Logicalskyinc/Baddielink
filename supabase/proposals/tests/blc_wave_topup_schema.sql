@@ -94,10 +94,7 @@ DECLARE
   v_second_credit_tx_id uuid;
   v_second_topup_id uuid;
   v_member_wallet_id uuid;
-  v_other_issuance_id uuid;
   v_issuance_id uuid;
-  v_second_credit_tx_id uuid;
-  v_second_topup_id uuid;
 BEGIN
   SELECT id INTO STRICT v_provider_id
   FROM private.payment_provider_accounts
