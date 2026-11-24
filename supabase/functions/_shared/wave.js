@@ -121,6 +121,7 @@ function validateWaveCheckoutSession(session, { amountXof, clientReference }) {
     typeof session.wave_launch_url !== "string" ||
     typeof session.amount !== "string" ||
     session.currency !== "XOF" ||
+    !["open", "complete", "expired"].includes(session.checkout_status) ||
     session.client_reference !== clientReference ||
     session.amount !== String(amountXof)
   ) {
