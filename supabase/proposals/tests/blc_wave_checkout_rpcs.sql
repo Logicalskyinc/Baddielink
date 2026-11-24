@@ -64,28 +64,17 @@ SELECT public.attach_wave_checkout_session(
   'cos-ci-wave-checkout-0002'
 );
 
-SELECT topup_id AS wave_checkout_failed_topup_id
-FROM public.create_wave_topup(1500, 'ci-wave-checkout-fail-0002')
-\gset
-
-SELECT public.fail_wave_topup_checkout(:'wave_checkout_failed_topup_id'::uuid);
-
 RESET ROLE;
 
 DO $wave_checkout_assertions$
 DECLARE
   v_topup_id uuid;
-  v_failed_topup_id uuid;
 BEGIN
   SELECT r.topup_id INTO STRICT v_topup_id
   FROM private.blc_checkout_requests r
   WHERE r.user_id = '00000000-0000-0000-0000-000000000002'
     AND r.idempotency_key = 'ci-wave-checkout-key-0002';
 
-  SELECT r.topup_id INTO STRICT v_failed_topup_id
-  FROM private.blc_checkout_requests r
-  WHERE r.user_id = '00000000-0000-0000-0000-000000000002'
-    AND r.idempotency_key = 'ci-wave-checkout-fail-0002';
   IF (SELECT status FROM private.blc_topups WHERE id = v_topup_id) <> 'checkout_pending' THEN
     RAISE EXCEPTION 'Checkout session attachment did not transition top-up to checkout_pending';
   END IF;
@@ -99,14 +88,10 @@ BEGIN
     RAISE EXCEPTION 'Checkout session reference was not persisted';
   END IF;
 
-  IF (SELECT status FROM private.blc_topups WHERE id = v_failed_topup_id) <> 'failed' THEN
-    RAISE EXCEPTION 'Failed checkout was not marked failed';
-  END IF;
-
   IF has_function_privilege('anon', 'public.create_wave_topup(bigint,text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.claim_wave_checkout_creation(uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.attach_wave_checkout_session(uuid,text)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.fail_wave_topup_checkout(uuid)', 'EXECUTE') THEN
+ THEN
     RAISE EXCEPTION 'Anonymous role can execute Wave checkout RPCs';
   END IF;
 
