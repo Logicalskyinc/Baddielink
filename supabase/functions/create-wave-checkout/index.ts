@@ -196,17 +196,28 @@ Deno.serve(async (request: Request) => {
       );
 
       if (attachError) {
-        // Recover if the provider accepted the session but our database
-        // response was lost. Never return an unpersisted session to the client.
-        const recovered = await searchWaveCheckoutByClientReference({
+        // Confirm persistence from our database, not from Wave's search API.
+        // A provider session existing does not prove it is linked to this top-up.
+        const { data: recoveryRows, error: recoveryError } = await supabase.rpc(
+          "claim_wave_checkout_creation",
+          { p_topup_id: topup.topup_id },
+        );
+        const recovery = Array.isArray(recoveryRows) ? recoveryRows[0] : null;
+
+        if (
+          recoveryError ||
+          recovery?.claim_status !== "already_attached" ||
+          recovery.checkout_session_id !== session.id
+        ) {
+          return reply(503, { error: "checkout_persistence_pending" }, cors);
+        }
+
+        session = await retrieveWaveCheckoutSession({
           apiKey: waveApiKey,
+          checkoutSessionId: recovery.checkout_session_id,
           amountXof: Number(topup.amount_xof),
           clientReference: topup.client_reference,
         });
-        if (!recovered || recovered.id !== session.id) {
-          return reply(503, { error: "checkout_persistence_pending" }, cors);
-        }
-        session = recovered;
       }
     } else {
       return reply(409, { error: "checkout_state_conflict" }, cors);
