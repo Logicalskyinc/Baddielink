@@ -23,6 +23,8 @@ CREATE TABLE private.referral_attributions (
   referral_code_id uuid NOT NULL,
   attributed_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT referral_no_self_referral CHECK (referrer_user_id <> referred_user_id),
+  CONSTRAINT referral_attributions_identity_unique
+    UNIQUE (id, referrer_user_id, referred_user_id),
   CONSTRAINT referral_attribution_code_owner_fk
     FOREIGN KEY (referral_code_id, referrer_user_id)
     REFERENCES private.referral_codes(id, owner_user_id)
@@ -42,7 +44,15 @@ CREATE TABLE private.referral_rewards (
   reward_amount_blc bigint NOT NULL CHECK (reward_amount_blc > 0),
   wallet_transaction_id uuid NOT NULL UNIQUE REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT referral_reward_identity_check CHECK (referrer_user_id <> referred_user_id)
+  CONSTRAINT referral_reward_identity_check CHECK (referrer_user_id <> referred_user_id),
+  CONSTRAINT referral_reward_attribution_identity_fk
+    FOREIGN KEY (referral_attribution_id, referrer_user_id, referred_user_id)
+    REFERENCES private.referral_attributions(id, referrer_user_id, referred_user_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT referral_reward_gift_sender_identity_fk
+    FOREIGN KEY (gift_transaction_id, referred_user_id)
+    REFERENCES private.gift_transactions(id, sender_user_id)
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX referral_rewards_referrer_history_idx
