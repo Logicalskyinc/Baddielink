@@ -51,6 +51,57 @@ INSERT INTO private.referral_attributions (
   '20000000-0000-0000-0000-000000000001'
 );
 
+
+-- The referral code must belong to the declared referrer. A mismatched owner
+-- must be rejected by the composite foreign key.
+DO $
+BEGIN
+  BEGIN
+    INSERT INTO private.referral_attributions (
+      id, referrer_user_id, referred_user_id, referral_code_id
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000099',
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000003',
+      '20000000-0000-0000-0000-000000000001'
+    );
+    RAISE EXCEPTION 'Mismatched referral-code owner was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$;
+
+-- An inactive code cannot create a new attribution.
+INSERT INTO private.referral_codes (
+  id, owner_user_id, referral_code, is_active
+) VALUES (
+  '20000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000006',
+  'INACTIVE-CODE-006',
+  false
+);
+
+DO $
+BEGIN
+  BEGIN
+    INSERT INTO private.referral_attributions (
+      id, referrer_user_id, referred_user_id, referral_code_id
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000098',
+      '00000000-0000-0000-0000-000000000006',
+      '00000000-0000-0000-0000-000000000003',
+      '20000000-0000-0000-0000-000000000002'
+    );
+    RAISE EXCEPTION 'Inactive referral code was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'Referral code is invalid or inactive' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$;
+
 -- Seed 100 purchased BLC as a balanced, posted test credit.
 BEGIN;
 DO $$
