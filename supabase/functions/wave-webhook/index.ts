@@ -60,6 +60,7 @@ Deno.serve(async (request: Request) => {
 
   const webhookSecret = Deno.env.get("WAVE_SANDBOX_WEBHOOK_SECRET");
   const waveApiKey = Deno.env.get("WAVE_SANDBOX_API_KEY");
+  const waveRequestSigningSecret = Deno.env.get("WAVE_SANDBOX_API_SIGNING_SECRET") ?? undefined;
   const providerAccountId = Deno.env.get("WAVE_SANDBOX_PROVIDER_ACCOUNT_ID");
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
