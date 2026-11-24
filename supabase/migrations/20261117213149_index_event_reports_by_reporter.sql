@@ -1,0 +1,1 @@
+create index if not exists event_reports_reporter_created_idx on public.event_reports(reporter_id, created_at desc);
