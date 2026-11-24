@@ -113,6 +113,101 @@ export function buildWaveCheckoutRequest({
   };
 }
 
+
+function validateWaveCheckoutSession(session, { amountXof, clientReference }) {
+  if (
+    !session ||
+    typeof session.id !== "string" ||
+    typeof session.wave_launch_url !== "string" ||
+    typeof session.amount !== "string" ||
+    session.currency !== "XOF" ||
+    session.client_reference !== clientReference ||
+    session.amount !== String(amountXof)
+  ) {
+    throw new Error("Wave checkout session does not match the expected top-up");
+  }
+
+  const launchUrl = new URL(session.wave_launch_url);
+  if (launchUrl.protocol !== "https:" || launchUrl.hostname !== "pay.wave.com") {
+    throw new Error("Wave returned an unexpected checkout launch URL");
+  }
+
+  return {
+    id: session.id,
+    amount: session.amount,
+    currency: session.currency,
+    client_reference: session.client_reference,
+    checkout_status: session.checkout_status,
+    payment_status: session.payment_status,
+    transaction_id: session.transaction_id,
+    wave_launch_url: launchUrl.toString(),
+  };
+}
+
+export async function searchWaveCheckoutByClientReference({
+  apiKey,
+  amountXof,
+  clientReference,
+  fetchImpl = fetch,
+}) {
+  if (typeof apiKey !== "string" || !apiKey.trim()) {
+    throw new TypeError("Wave API key is not configured");
+  }
+
+  const url = new URL("https://api.wave.com/v1/checkout/sessions/search");
+  url.searchParams.set("client_reference", clientReference);
+
+  const response = await fetchImpl(url.toString(), {
+    method: "GET",
+    headers: { Authorization: "Bearer " + apiKey },
+  });
+
+  if (!response.ok) {
+    throw new Error("Wave checkout search failed with HTTP " + response.status);
+  }
+
+  const payload = await response.json();
+  if (!payload || !Array.isArray(payload.result)) {
+    throw new Error("Wave checkout search returned an invalid response");
+  }
+
+  const matches = payload.result.map((session) =>
+    validateWaveCheckoutSession(session, { amountXof, clientReference })
+  );
+
+  if (matches.length > 1) {
+    throw new Error("Multiple Wave checkout sessions share one BLC client reference");
+  }
+
+  return matches[0] ?? null;
+}
+
+export async function retrieveWaveCheckoutSession({
+  apiKey,
+  checkoutSessionId,
+  amountXof,
+  clientReference,
+  fetchImpl = fetch,
+}) {
+  if (typeof apiKey !== "string" || !apiKey.trim()) {
+    throw new TypeError("Wave API key is not configured");
+  }
+  if (typeof checkoutSessionId !== "string" || !/^cos-[A-Za-z0-9]+$/.test(checkoutSessionId)) {
+    throw new TypeError("Invalid Wave checkout session ID");
+  }
+
+  const response = await fetchImpl(
+    "https://api.wave.com/v1/checkout/sessions/" + encodeURIComponent(checkoutSessionId),
+    { method: "GET", headers: { Authorization: "Bearer " + apiKey } },
+  );
+
+  if (!response.ok) {
+    throw new Error("Wave checkout retrieval failed with HTTP " + response.status);
+  }
+
+  return validateWaveCheckoutSession(await response.json(), { amountXof, clientReference });
+}
+
 export async function createWaveCheckoutSession({
   apiKey,
   amountXof,
