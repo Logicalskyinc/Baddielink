@@ -74,7 +74,7 @@ CREATE TABLE private.blc_topups (
   CONSTRAINT blc_topups_credit_timestamp_pair
     CHECK ((credit_wallet_transaction_id IS NULL) = (credited_at IS NULL)),
   CONSTRAINT blc_topups_credited_requires_journal
-    CHECK (status <> 'credited' OR credit_wallet_transaction_id IS NOT NULL),
+    CHECK ((status = 'credited') = (credit_wallet_transaction_id IS NOT NULL)),
   CONSTRAINT blc_topups_expiry_after_creation
     CHECK (expires_at IS NULL OR expires_at > created_at),
   CONSTRAINT blc_topups_verification_after_creation
@@ -83,6 +83,7 @@ CREATE TABLE private.blc_topups (
     CHECK (credited_at IS NULL OR credited_at >= created_at),
   CONSTRAINT blc_topups_id_provider_unique UNIQUE (id, provider_account_id),
   CONSTRAINT blc_topups_id_user_unique UNIQUE (id, user_id),
+  CONSTRAINT blc_topups_id_user_credit_unique UNIQUE (id, user_id, credit_wallet_transaction_id),
   CONSTRAINT blc_topups_credit_actor_fk
     FOREIGN KEY (credit_wallet_transaction_id, user_id)
     REFERENCES private.wallet_transactions(id, actor_user_id)
@@ -157,15 +158,16 @@ CREATE TABLE private.blc_topup_funding_lots (
   wallet_account_id uuid NOT NULL,
   wallet_account_kind text NOT NULL DEFAULT 'purchased_blc'
     CHECK (wallet_account_kind = 'purchased_blc'),
+  credit_wallet_transaction_id uuid NOT NULL,
   original_amount_blc bigint NOT NULL CHECK (original_amount_blc > 0),
   remaining_amount_blc bigint NOT NULL CHECK (remaining_amount_blc >= 0),
   consumed_amount_blc bigint NOT NULL CHECK (consumed_amount_blc >= 0),
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT blc_topup_funding_lots_amounts_reconcile
     CHECK (remaining_amount_blc + consumed_amount_blc = original_amount_blc),
-  CONSTRAINT blc_topup_funding_lots_topup_owner_fk
-    FOREIGN KEY (topup_id, user_id)
-    REFERENCES private.blc_topups(id, user_id)
+  CONSTRAINT blc_topup_funding_lots_topup_owner_credit_fk
+    FOREIGN KEY (topup_id, user_id, credit_wallet_transaction_id)
+    REFERENCES private.blc_topups(id, user_id, credit_wallet_transaction_id)
     ON DELETE RESTRICT,
   CONSTRAINT blc_topup_funding_lots_wallet_owner_fk
     FOREIGN KEY (wallet_account_id, user_id, wallet_account_kind)
