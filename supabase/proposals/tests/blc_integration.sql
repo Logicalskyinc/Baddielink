@@ -584,7 +584,7 @@ $send_idempotency_mismatch$;
 RESET ROLE;
 ROLLBACK;
 
-DO $
+DO $$
 BEGIN
   IF (SELECT count(*) FROM private.gift_transactions) <> 3
      OR (SELECT count(*) FROM private.referral_rewards) <> 2 THEN
