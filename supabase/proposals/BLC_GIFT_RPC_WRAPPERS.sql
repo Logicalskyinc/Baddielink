@@ -33,6 +33,18 @@ BEGIN
     RAISE EXCEPTION 'Invalid gift inventory purchase request' USING ERRCODE = '22023';
   END IF;
 
+  -- Lock all eligibility records before checking them. FOR SHARE blocks
+  -- concurrent moderation, email-confirmation, and age-declaration updates
+  -- until this purchase transaction commits. User-ID ordering is consistent
+  -- with the send path and avoids cross-user lock-order cycles.
+  PERFORM 1
+  FROM auth.users u
+  JOIN public.profiles p ON p.id = u.id
+  JOIN public.user_private_settings ups ON ups.user_id = u.id
+  WHERE u.id = caller_id
+  ORDER BY u.id
+  FOR SHARE OF u, p, ups;
+
   SELECT u.email_confirmed_at IS NOT NULL, p.moderation_status
     INTO caller_email_confirmed, caller_status
   FROM auth.users u
@@ -83,6 +95,17 @@ BEGIN
      OR p_recipient_user_id = caller_id THEN
     RAISE EXCEPTION 'Invalid gift request' USING ERRCODE = '22023';
   END IF;
+
+  -- Lock sender and recipient eligibility records in deterministic UUID
+  -- order. This prevents account-status and age-declaration changes from
+  -- racing the gift while avoiding opposite-direction send deadlocks.
+  PERFORM 1
+  FROM auth.users u
+  JOIN public.profiles p ON p.id = u.id
+  JOIN public.user_private_settings ups ON ups.user_id = u.id
+  WHERE u.id IN (caller_id, p_recipient_user_id)
+  ORDER BY u.id
+  FOR SHARE OF u, p, ups;
 
   SELECT u.email_confirmed_at IS NOT NULL, p.moderation_status
     INTO sender_email_confirmed, sender_status
