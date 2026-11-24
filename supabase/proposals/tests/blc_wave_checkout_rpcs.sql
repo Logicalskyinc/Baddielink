@@ -37,7 +37,7 @@ END AS idempotency_result;
 DO $wave_checkout_idempotency_negative$
 BEGIN
   BEGIN
-    PERFORM * FROM public.create_wave_topup(1001, 'ci-wave-checkout-key-0002');
+    PERFORM 1 FROM public.create_wave_topup(1001, 'ci-wave-checkout-key-0002');
     RAISE EXCEPTION 'Checkout idempotency key accepted a different amount';
   EXCEPTION WHEN invalid_parameter_value THEN
     NULL;
@@ -60,9 +60,18 @@ RESET ROLE;
 
 DO $wave_checkout_assertions$
 DECLARE
-  v_topup_id uuid := :'wave_checkout_topup_id';
-  v_failed_topup_id uuid := :'wave_checkout_failed_topup_id';
+  v_topup_id uuid;
+  v_failed_topup_id uuid;
 BEGIN
+  SELECT r.topup_id INTO STRICT v_topup_id
+  FROM private.blc_checkout_requests r
+  WHERE r.user_id = '00000000-0000-0000-0000-000000000002'
+    AND r.idempotency_key = 'ci-wave-checkout-key-0002';
+
+  SELECT r.topup_id INTO STRICT v_failed_topup_id
+  FROM private.blc_checkout_requests r
+  WHERE r.user_id = '00000000-0000-0000-0000-000000000002'
+    AND r.idempotency_key = 'ci-wave-checkout-fail-0002';
   IF (SELECT status FROM private.blc_topups WHERE id = v_topup_id) <> 'checkout_pending' THEN
     RAISE EXCEPTION 'Checkout session attachment did not transition top-up to checkout_pending';
   END IF;
