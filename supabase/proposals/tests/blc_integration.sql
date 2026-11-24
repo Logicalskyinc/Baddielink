@@ -576,3 +576,240 @@ END;
 $$;
 
 SELECT 'BLC PostgreSQL integration tests passed' AS result;
+
+
+-- Boundary case: 5% of 19 XOF rounds down to zero. It must not create a
+-- zero-value referral reward or reduce the platform commission.
+INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
+  ('00000000-0000-0000-0000-000000000007', 'rounding-sender@example.test', now()),
+  ('00000000-0000-0000-0000-000000000008', 'fifo-sender@example.test', now());
+
+INSERT INTO public.profiles (id, moderation_status) VALUES
+  ('00000000-0000-0000-0000-000000000007', 'approved'),
+  ('00000000-0000-0000-0000-000000000008', 'approved');
+
+INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at) VALUES
+  ('00000000-0000-0000-0000-000000000007', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000008', DATE '1990-01-01', now());
+
+INSERT INTO private.referral_attributions (
+  id, referrer_user_id, referred_user_id, referral_code_id
+) VALUES
+  ('30000000-0000-0000-0000-000000000007',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000007',
+   '20000000-0000-0000-0000-000000000001'),
+  ('30000000-0000-0000-0000-000000000008',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000008',
+   '20000000-0000-0000-0000-000000000001');
+
+INSERT INTO private.gift_catalog (
+  id, gift_code, display_name, price_blc, face_value_xof, asset_key, is_active
+) VALUES (
+  '10000000-0000-0000-0000-000000000019',
+  'ci-test-small-gift', 'CI Test Small Gift', 19, 19, 'test/small-gift.svg', true
+);
+
+-- Seed user 7 with 19 purchased BLC.
+DO $rounding_seed$
+DECLARE
+  member_account uuid;
+  issuance_account uuid;
+  tx_id uuid;
+BEGIN
+  member_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000007', 'purchased_blc', 'BLC'
+  );
+  SELECT id INTO issuance_account FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-rounding-seed-007',
+          '00000000-0000-0000-0000-000000000007')
+  RETURNING id INTO tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES (tx_id, member_account, 'BLC', 19),
+         (tx_id, issuance_account, 'BLC', -19);
+END;
+$rounding_seed$;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000019', 1, 'ci-rounding-purchase-007'
+);
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000019',
+  'ci-rounding-send-007'
+);
+RESET ROLE;
+COMMIT;
+
+DO $rounding_assert$
+DECLARE
+  gift_row private.gift_transactions%ROWTYPE;
+BEGIN
+  SELECT * INTO STRICT gift_row FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-rounding-send-007';
+
+  IF gift_row.recipient_share_xof <> 13
+     OR gift_row.referral_share_xof <> 0
+     OR gift_row.platform_share_xof <> 6 THEN
+    RAISE EXCEPTION 'Small gift rounding split incorrect';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.referral_rewards
+    WHERE gift_transaction_id = gift_row.id
+  ) THEN
+    RAISE EXCEPTION 'A zero-rounded referral reward row was created';
+  END IF;
+END;
+$rounding_assert$;
+
+-- FIFO and integer-remainder boundary: first buy one referral-funded unit,
+-- then buy two mixed-funded units. The first send must consume the referral-only
+-- lot; the next two consume purchased portions of 50 and 51 BLC respectively.
+DO $fifo_seed$
+DECLARE
+  purchased_account uuid;
+  referral_account uuid;
+  issuance_account uuid;
+  revenue_account uuid;
+  referral_funding_account uuid;
+  tx_id uuid;
+BEGIN
+  purchased_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000008', 'purchased_blc', 'BLC'
+  );
+  referral_account := private.ensure_member_wallet_account(
+    '00000000-0000-0000-0000-000000000008', 'referral_blc', 'BLC'
+  );
+  SELECT id INTO issuance_account FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+  SELECT id INTO revenue_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-platform-revenue';
+  SELECT id INTO referral_funding_account FROM private.wallet_accounts
+  WHERE account_code = 'system:xof-referral-funding';
+
+  INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
+  VALUES ('purchase_credit', 'ci-fifo-seed-008',
+          '00000000-0000-0000-0000-000000000008')
+  RETURNING id INTO tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (tx_id, purchased_account, 'BLC', 101),
+    (tx_id, referral_account, 'BLC', 199),
+    (tx_id, issuance_account, 'BLC', -300),
+    (tx_id, revenue_account, 'XOF', -199),
+    (tx_id, referral_funding_account, 'XOF', 199);
+END;
+$fifo_seed$;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000001', 1, 'ci-fifo-referral-lot-008'
+);
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.purchase_gift_inventory(
+  '10000000-0000-0000-0000-000000000001', 2, 'ci-fifo-mixed-lot-008'
+);
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-first-008'
+);
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-second-008'
+);
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-fifo-send-third-008'
+);
+RESET ROLE;
+COMMIT;
+
+DO $fifo_assert$
+DECLARE
+  first_gift private.gift_transactions%ROWTYPE;
+  second_gift private.gift_transactions%ROWTYPE;
+  third_gift private.gift_transactions%ROWTYPE;
+  first_lot_qty integer;
+  second_lot_qty integer;
+  second_lot_purchased bigint;
+  second_lot_referral bigint;
+BEGIN
+  SELECT * INTO STRICT first_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-first-008';
+  SELECT * INTO STRICT second_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-second-008';
+  SELECT * INTO STRICT third_gift FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-fifo-send-third-008';
+
+  IF first_gift.referral_share_xof <> 0 THEN
+    RAISE EXCEPTION 'FIFO did not consume the older referral-only lot first';
+  END IF;
+
+  IF second_gift.referral_share_xof <> 2
+     OR third_gift.referral_share_xof <> 2 THEN
+    RAISE EXCEPTION 'Mixed-lot purchased portions or final-unit remainder were allocated incorrectly';
+  END IF;
+
+  SELECT quantity_remaining INTO first_lot_qty
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-fifo-referral-lot-008'
+    )
+  );
+
+  SELECT quantity_remaining, purchased_blc_remaining, referral_blc_remaining
+    INTO second_lot_qty, second_lot_purchased, second_lot_referral
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-fifo-mixed-lot-008'
+    )
+  );
+
+  IF first_lot_qty <> 0
+     OR second_lot_qty <> 0
+     OR second_lot_purchased <> 0
+     OR second_lot_referral <> 0 THEN
+    RAISE EXCEPTION 'FIFO funding lots or source balances were not fully consumed';
+  END IF;
+END;
+$fifo_assert$;
+
+SELECT 'BLC funding boundary integration tests passed' AS result;
