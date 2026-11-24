@@ -116,8 +116,7 @@ BEGIN
     NULL;
   END;
 
-  -- Correct owner/account identity is accepted as a schema fact. This fixture
-  -- intentionally does not create a wallet credit or mark the top-up credited.
+  -- A verified-but-not-credited top-up must not create spendable funding provenance.
   SELECT id INTO account_id
   FROM private.wallet_accounts
   WHERE owner_user_id = '00000000-0000-0000-0000-000000000002'
@@ -133,14 +132,19 @@ BEGIN
     ) RETURNING id INTO account_id;
   END IF;
 
-  INSERT INTO private.blc_topup_funding_lots (
-    topup_id, user_id, wallet_account_id,
-    original_amount_blc, remaining_amount_blc, consumed_amount_blc
-  ) VALUES (
-    '90000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000002',
-    account_id, 2500, 2500, 0
-  );
+  BEGIN
+    INSERT INTO private.blc_topup_funding_lots (
+      topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
+      original_amount_blc, remaining_amount_blc, consumed_amount_blc
+    ) VALUES (
+      '90000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000002',
+      account_id, NULL, 2500, 2500, 0
+    );
+    RAISE EXCEPTION 'Uncredited top-up created a funding lot';
+  EXCEPTION WHEN check_violation OR not_null_violation THEN
+    NULL;
+  END;
 
   IF has_table_privilege('anon', 'private.blc_topups', 'SELECT')
      OR has_table_privilege('authenticated', 'private.blc_topups', 'INSERT')
