@@ -194,3 +194,20 @@ Until top-up provenance and provider reconciliation exist:
 - No provider credentials, payment integrations, migrations, production writes, or deployments were performed.
 - PR #11 remains separate and draft.
 - Top-ups, refunds, chargebacks, payouts, and cash-out remain disabled.
+
+## Selected provider decision: Wave
+
+Wave is the selected candidate for future BaddieLink XOF top-ups. This is a design decision only. It does not establish merchant eligibility, activate a Wave Business Account, authorize credentials, or enable payments.
+
+Wave's public Business API documentation states that API use requires a Wave Business Account, with API keys scoped to the business wallet. The Checkout API documents XOF amounts without decimal places and provides a browser launch URL. The Webhooks documentation describes raw-body signature verification, event-ID idempotency, and duplicate/missed/out-of-order delivery. The Balance API provides transaction listing and refund operations.
+
+Before implementation, Wave must confirm Côte d'Ivoire business onboarding/API eligibility, merchant fees and settlement timing, partial-refund availability, and dispute/chargeback notification and evidence workflows. The published Checkout refund endpoint documents a full checkout refund with no amount parameter. The public webhook event list reviewed does not document a complete dispute/chargeback lifecycle.
+
+Official references:
+- https://docs.wave.com/business
+- https://docs.wave.com/checkout
+- https://docs.wave.com/webhook
+- https://docs.wave.com/balance-api
+
+The provenance chain remains provider-neutral in its data model. Store Wave identifiers and events as provider references, but do not hard-code provider assumptions into wallet accounting. The internal top-up/funding-lot ledger remains the source of BLC accounting truth; Wave remains the external payment and settlement evidence source.
+
