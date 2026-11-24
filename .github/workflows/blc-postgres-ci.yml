@@ -96,6 +96,12 @@ jobs:
       - name: Run Wave top-up schema constraint tests
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_wave_topup_schema.sql
 
+      - name: Apply authenticated Wave checkout RPC proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_CHECKOUT_RPCS.sql
+
+      - name: Run Wave checkout RPC tests
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/tests/blc_wave_checkout_rpcs.sql
+
       - name: Apply Wave purchased-funding provenance proposal
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/BLC_WAVE_GIFT_PROVENANCE.sql
 
