@@ -14,6 +14,32 @@ function reply(status: number, payload: Record<string, unknown>, cors: Record<st
   });
 }
 
+async function readBodyBounded(request: Request, maxBytes: number): Promise<string | null> {
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new RangeError("request_too_large");
+    }
+    chunks.push(value);
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 Deno.serve(async (request: Request) => {
   const allowedOrigin = Deno.env.get("BADDIELINK_ALLOWED_ORIGIN");
   const origin = request.headers.get("origin");
@@ -73,8 +99,8 @@ Deno.serve(async (request: Request) => {
 
   let body: unknown;
   try {
-    const raw = await request.text();
-    if (raw.length > 4096) return reply(413, { error: "request_too_large" }, cors);
+    const raw = await readBodyBounded(request, 4096);
+    if (raw === null) return reply(400, { error: "empty_request" }, cors);
     body = JSON.parse(raw);
   } catch {
     return reply(400, { error: "invalid_json" }, cors);
@@ -88,7 +114,7 @@ Deno.serve(async (request: Request) => {
   const amountXof = input.amount_xof;
   const idempotencyKey = input.idempotency_key;
 
-  if (!Number.isSafeInteger(amountXof) || Number(amountXof) <= 0) {
+  if (typeof amountXof !== "number" || !Number.isSafeInteger(amountXof) || amountXof <= 0) {
     return reply(400, { error: "invalid_amount_xof" }, cors);
   }
   if (
