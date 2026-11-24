@@ -13,17 +13,46 @@ INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaratio
 VALUES ('00000000-0000-0000-0000-000000000009', DATE '1990-01-01', now());
 
 DO $seed$
-DECLARE member_account uuid; issuance_account uuid; tx_id uuid;
+DECLARE
+  member_account uuid;
+  issuance_account uuid;
+  provider_account uuid;
+  tx_id uuid;
+  topup_id uuid;
 BEGIN
   member_account := private.ensure_member_wallet_account(
     '00000000-0000-0000-0000-000000000009', 'purchased_blc', 'BLC');
   SELECT id INTO issuance_account FROM private.wallet_accounts
   WHERE account_code = 'system:blc-issuance';
+  SELECT id INTO STRICT provider_account
+  FROM private.payment_provider_accounts
+  WHERE provider_code = 'wave' AND environment = 'sandbox'
+  ORDER BY created_at, id LIMIT 1;
+
   INSERT INTO private.wallet_transactions(transaction_type,idempotency_key,actor_user_id)
   VALUES ('purchase_credit','ci-concurrency-credit-007',
           '00000000-0000-0000-0000-000000000009') RETURNING id INTO tx_id;
   INSERT INTO private.wallet_ledger_entries(transaction_id,account_id,unit,amount)
   VALUES (tx_id,member_account,'BLC',100),(tx_id,issuance_account,'BLC',-100);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id,
+    verified_at, credited_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000009',
+    provider_account, 100, 100, 1, 1,
+    'credited', 'ci-concurrency-topup-009', tx_id, now(), now()
+  ) RETURNING id INTO topup_id;
+
+  INSERT INTO private.blc_topup_funding_lots (
+    topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
+    original_amount_blc, remaining_amount_blc, consumed_amount_blc
+  ) VALUES (
+    topup_id, '00000000-0000-0000-0000-000000000009',
+    member_account, tx_id, 100, 100, 0
+  );
 END;
 $seed$;
 SQL
