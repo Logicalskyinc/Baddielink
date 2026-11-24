@@ -937,6 +937,104 @@ BEGIN
 END;
 $no_code_signup_assert$;
 
+-- The member-facing dashboard returns only aggregate totals and the
+-- authenticated owner's own code status.
+DO $referral_dashboard_rpc_assert$
+DECLARE
+  code_value text;
+  active_value boolean;
+  summary_row record;
+  expected_total bigint;
+  expected_rewarded bigint;
+  expected_rewards bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000012', true);
+
+  SELECT referral_code, is_active
+    INTO STRICT code_value, active_value
+  FROM public.get_my_referral_code_status();
+
+  IF code_value !~ '^[A-F0-9]{24}
+BEGIN;
+SELECT set_config('request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000012', true);
+SET LOCAL ROLE authenticated;
+SELECT public.deactivate_my_referral_code();
+SELECT public.deactivate_my_referral_code();
+RESET ROLE;
+COMMIT;
+
+DO $referral_deactivation_assert$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM private.referral_codes
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012'
+      AND is_active = true
+  ) THEN
+    RAISE EXCEPTION 'Referral code remained active after deactivation';
+  END IF;
+
+  BEGIN
+    UPDATE private.referral_codes
+    SET is_active = true
+    WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
+    RAISE EXCEPTION 'Reactivation of a deactivated referral code was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'Referral-code identity is immutable%' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$referral_deactivation_assert$;
+
+-- The public API must not be callable by anonymous users.
+DO $referral_permissions_assert$
+BEGIN
+  IF has_function_privilege('anon', 'public.get_my_referral_code()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_my_referral_summary()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Anonymous role can execute referral lifecycle functions';
+  END IF;
+
+  IF NOT has_function_privilege('authenticated', 'public.get_my_referral_code()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_code_status()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_referral_summary()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.deactivate_my_referral_code()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute referral lifecycle functions';
+  END IF;
+END;
+$referral_permissions_assert$;
+
+SELECT 'BLC referral lifecycle integration tests passed' AS result;
+ OR active_value IS NOT TRUE THEN
+    RAISE EXCEPTION 'Referral dashboard did not return the owner active code';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000001', true);
+
+  SELECT * INTO STRICT summary_row
+  FROM public.get_my_referral_summary();
+
+  SELECT count(DISTINCT a.id),
+         count(DISTINCT r.referral_attribution_id),
+         coalesce(sum(r.reward_amount_blc), 0)
+    INTO expected_total, expected_rewarded, expected_rewards
+  FROM private.referral_attributions a
+  LEFT JOIN private.referral_rewards r ON r.referral_attribution_id = a.id
+  WHERE a.referrer_user_id = '00000000-0000-0000-0000-000000000001';
+
+  IF summary_row.total_referrals <> expected_total
+     OR summary_row.rewarded_referrals <> expected_rewarded
+     OR summary_row.pending_referrals <> expected_total - expected_rewarded
+     OR summary_row.total_rewards_blc <> expected_rewards THEN
+    RAISE EXCEPTION 'Referral dashboard aggregate values do not reconcile';
+  END IF;
+END;
+$referral_dashboard_rpc_assert$;
+
 -- Deactivation is owner-scoped, idempotent and irreversible.
 BEGIN;
 SELECT set_config('request.jwt.claim.sub',
