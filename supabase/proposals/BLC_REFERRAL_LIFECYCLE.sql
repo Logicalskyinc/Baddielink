@@ -17,6 +17,7 @@ DECLARE
   caller_id uuid;
   existing_code text;
   candidate_code text;
+  existing_active boolean;
 BEGIN
   caller_id := auth.uid();
   IF caller_id IS NULL THEN
@@ -28,13 +29,13 @@ BEGIN
   );
 
   SELECT c.referral_code, c.is_active
-    INTO existing_code, candidate_code
+    INTO existing_code, existing_active
   FROM private.referral_codes c
   WHERE c.owner_user_id = caller_id
   FOR UPDATE;
 
   IF FOUND THEN
-    IF candidate_code IS NOT TRUE THEN
+    IF existing_active IS NOT TRUE THEN
       RAISE EXCEPTION 'Your referral code has been deactivated';
     END IF;
     RETURN existing_code;
@@ -62,11 +63,11 @@ BEGIN
         WHERE c.owner_user_id = caller_id
       ) THEN
         SELECT c.referral_code, c.is_active
-          INTO existing_code, candidate_code
+          INTO existing_code, existing_active
         FROM private.referral_codes c
         WHERE c.owner_user_id = caller_id
         FOR UPDATE;
-        IF candidate_code IS NOT TRUE THEN
+        IF existing_active IS NOT TRUE THEN
           RAISE EXCEPTION 'Your referral code has been deactivated';
         END IF;
         RETURN existing_code;
