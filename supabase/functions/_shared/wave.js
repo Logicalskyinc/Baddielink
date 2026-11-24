@@ -160,6 +160,7 @@ export async function searchWaveCheckoutByClientReference({
   const response = await fetchImpl(url.toString(), {
     method: "GET",
     headers: { Authorization: "Bearer " + apiKey },
+    signal: AbortSignal.timeout(5000),
   });
 
   if (!response.ok) {
@@ -198,7 +199,11 @@ export async function retrieveWaveCheckoutSession({
 
   const response = await fetchImpl(
     "https://api.wave.com/v1/checkout/sessions/" + encodeURIComponent(checkoutSessionId),
-    { method: "GET", headers: { Authorization: "Bearer " + apiKey } },
+    {
+      method: "GET",
+      headers: { Authorization: "Bearer " + apiKey },
+      signal: AbortSignal.timeout(5000),
+    },
   );
 
   if (!response.ok) {
@@ -234,6 +239,7 @@ export async function createWaveCheckoutSession({
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(5000),
   });
 
   if (!response.ok) {
