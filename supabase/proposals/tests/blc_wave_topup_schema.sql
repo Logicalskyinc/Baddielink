@@ -91,6 +91,7 @@ DECLARE
   v_credit_tx_id uuid;
   v_other_user_tx_id uuid;
   v_other_wallet_id uuid;
+  v_other_issuance_id uuid;
   v_issuance_id uuid;
 BEGIN
   SELECT id INTO STRICT v_provider_id
@@ -200,11 +201,6 @@ BEGIN
   END;
 
   -- The funding lot must link to the top-up's exact credit journal and member.
-  SELECT id INTO STRICT v_other_wallet_id
-  FROM private.wallet_accounts
-  WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
-    AND account_kind = 'purchased_blc';
-
   BEGIN
     INSERT INTO private.blc_topup_funding_lots (
       topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
