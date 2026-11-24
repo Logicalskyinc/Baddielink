@@ -39,7 +39,9 @@ CREATE TABLE private.gift_inventory_purchases (
   unit_price_blc bigint NOT NULL CHECK (unit_price_blc > 0),
   unit_face_value_xof bigint NOT NULL CHECK (unit_face_value_xof > 0),
   wallet_transaction_id uuid NOT NULL UNIQUE REFERENCES private.wallet_transactions(id) ON DELETE RESTRICT,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT gift_inventory_purchase_identity_unique
+    UNIQUE (id, buyer_user_id, gift_id)
 );
 
 CREATE TABLE private.gift_transactions (
