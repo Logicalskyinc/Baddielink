@@ -126,6 +126,29 @@ BEGIN
 END;
 $function$;
 
+
+ALTER TABLE private.blc_checkout_requests ADD COLUMN checkout_claimed_at timestamptz;
+
+CREATE OR REPLACE FUNCTION public.claim_wave_checkout_creation(p_topup_id uuid)
+RETURNS TABLE (claim_status text, checkout_session_id text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
+DECLARE
+ v_user_id uuid := auth.uid();
+ v_request private.blc_checkout_requests%ROWTYPE;
+ v_session_id text;
+BEGIN
+ IF v_user_id IS NULL THEN RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000'; END IF;
+ SELECT r.* INTO v_request FROM private.blc_checkout_requests r WHERE r.topup_id = p_topup_id AND r.user_id = v_user_id FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Checkout request not found' USING ERRCODE = 'P0002'; END IF;
+ SELECT p.provider_reference INTO v_session_id FROM private.provider_payment_references p WHERE p.topup_id = p_topup_id AND p.reference_type = 'checkout_session';
+ IF v_session_id IS NOT NULL THEN RETURN QUERY SELECT 'already_attached'::text, v_session_id; RETURN; END IF;
+ IF v_request.checkout_claimed_at IS NOT NULL AND v_request.checkout_claimed_at > now() - interval '90 seconds' THEN RETURN QUERY SELECT 'in_progress'::text, NULL::text; RETURN; END IF;
+ UPDATE private.blc_checkout_requests SET checkout_claimed_at = now() WHERE id = v_request.id;
+ UPDATE private.blc_topups SET status = 'checkout_pending' WHERE id = p_topup_id AND user_id = v_user_id AND status IN ('created', 'checkout_pending');
+ RETURN QUERY SELECT 'claimed'::text, NULL::text;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.attach_wave_checkout_session(
   p_topup_id uuid,
   p_checkout_session_id text
@@ -158,9 +181,16 @@ BEGIN
     AND t.user_id = v_user_id
   FOR UPDATE;
 
-  IF NOT FOUND OR v_status <> 'created' THEN
+  IF NOT FOUND OR v_status <> 'checkout_pending' THEN
     RAISE EXCEPTION 'Top-up is unavailable or no longer awaiting checkout'
       USING ERRCODE = '55000';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.provider_payment_references p
+    WHERE p.topup_id = p_topup_id AND p.reference_type = 'checkout_session'
+  ) THEN
+    RAISE EXCEPTION 'Checkout session is already attached' USING ERRCODE = '23505';
   END IF;
 
   INSERT INTO private.provider_payment_references (
@@ -169,11 +199,6 @@ BEGIN
     p_topup_id, v_provider_id, 'checkout_session', p_checkout_session_id
   );
 
-  UPDATE private.blc_topups
-  SET status = 'checkout_pending'
-  WHERE id = p_topup_id
-    AND user_id = v_user_id
-    AND status = 'created';
 END;
 $function$;
 
@@ -194,7 +219,11 @@ BEGIN
   SET status = 'failed'
   WHERE id = p_topup_id
     AND user_id = v_user_id
-    AND status = 'created';
+    AND status IN ('created', 'checkout_pending')
+    AND NOT EXISTS (
+      SELECT 1 FROM private.provider_payment_references p
+      WHERE p.topup_id = p_topup_id AND p.reference_type = 'checkout_session'
+    );
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Top-up cannot be marked failed in its current state'
@@ -204,9 +233,11 @@ END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.create_wave_topup(bigint, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.claim_wave_checkout_creation(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.attach_wave_checkout_session(uuid, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fail_wave_topup_checkout(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_wave_topup(bigint, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_wave_checkout_creation(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.attach_wave_checkout_session(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fail_wave_topup_checkout(uuid) TO authenticated;
 
