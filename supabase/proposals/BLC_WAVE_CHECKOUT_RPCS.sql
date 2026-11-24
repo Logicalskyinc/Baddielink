@@ -218,43 +218,11 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.fail_wave_topup_checkout(p_topup_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $function$
-DECLARE
-  v_user_id uuid := auth.uid();
-BEGIN
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
-  END IF;
-
-  UPDATE private.blc_topups
-  SET status = 'failed'
-  WHERE id = p_topup_id
-    AND user_id = v_user_id
-    AND status IN ('created', 'checkout_pending')
-    AND NOT EXISTS (
-      SELECT 1 FROM private.provider_payment_references p
-      WHERE p.topup_id = p_topup_id AND p.reference_type = 'checkout_session'
-    );
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Top-up cannot be marked failed in its current state'
-      USING ERRCODE = '55000';
-  END IF;
-END;
-$function$;
-
 REVOKE ALL ON FUNCTION public.create_wave_topup(bigint, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.claim_wave_checkout_creation(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.attach_wave_checkout_session(uuid, text) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.fail_wave_topup_checkout(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_wave_topup(bigint, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_wave_checkout_creation(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.attach_wave_checkout_session(uuid, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.fail_wave_topup_checkout(uuid) TO authenticated;
 
 COMMIT;
