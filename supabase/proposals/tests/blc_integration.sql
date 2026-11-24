@@ -9,6 +9,35 @@ INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
   ('00000000-0000-0000-0000-000000000005', 'referral-only-sender@example.test', now()),
   ('00000000-0000-0000-0000-000000000006', 'rollback-sender@example.test', now());
 
+-- Funding provenance lot identity must match its source purchase.
+DO $funding_lot_identity$
+DECLARE
+  purchase_id uuid;
+BEGIN
+  SELECT id INTO STRICT purchase_id
+  FROM private.gift_inventory_purchases
+  WHERE wallet_transaction_id = (
+    SELECT id FROM private.wallet_transactions
+    WHERE idempotency_key = 'ci-rounding-purchase-007'
+  );
+
+  BEGIN
+    INSERT INTO private.gift_inventory_funding_lots (
+      purchase_id, user_id, gift_id, quantity_remaining,
+      purchased_blc_remaining, referral_blc_remaining
+    ) VALUES (
+      purchase_id,
+      '00000000-0000-0000-0000-000000000008',
+      '10000000-0000-0000-0000-000000000019',
+      1, 19, 0
+    );
+    RAISE EXCEPTION 'Mismatched funding-lot owner was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$funding_lot_identity$;
+
 -- Wallet account identity must match its economic class.
 DO $account_ownership$
 BEGIN
