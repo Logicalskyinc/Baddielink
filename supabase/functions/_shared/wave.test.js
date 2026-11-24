@@ -140,12 +140,12 @@ test("creates a checkout and returns only validated session fields", async () =>
     fetchImpl: async (url, options) => {
       captured = { url, options };
       return new Response(JSON.stringify({
-        id: "cos-test-001",
+        id: "cos-test001",
         amount: "2500",
         currency: "XOF",
         client_reference: "baddielink-topup-001",
         checkout_status: "open",
-        wave_launch_url: "https://pay.wave.com/c/cos-test-001",
+        wave_launch_url: "https://pay.wave.com/c/cos-test001",
         transaction_id: null,
       }), { status: 200, headers: { "content-type": "application/json" } });
     },
@@ -154,8 +154,8 @@ test("creates a checkout and returns only validated session fields", async () =>
   assert.equal(captured.url, "https://api.wave.com/v1/checkout/sessions");
   assert.equal(captured.options.headers.Authorization, "Bearer sandbox-key");
   assert.equal(JSON.parse(captured.options.body).amount, "2500");
-  assert.equal(result.id, "cos-test-001");
-  assert.equal(result.wave_launch_url, "https://pay.wave.com/c/cos-test-001");
+  assert.equal(result.id, "cos-test001");
+  assert.equal(result.wave_launch_url, "https://pay.wave.com/c/cos-test001");
   assert.equal("transaction_id" in result, false);
 });
 
@@ -167,7 +167,7 @@ test("rejects a Wave session with mismatched amount or launch host", async () =>
     successUrl: "https://example.com/success",
     errorUrl: "https://example.com/error",
     fetchImpl: async () => new Response(JSON.stringify({
-      id: "cos-test-001",
+      id: "cos-test001",
       amount: "1",
       currency: "XOF",
       client_reference: "baddielink-topup-001",
@@ -181,13 +181,13 @@ test("rejects a Wave session with mismatched amount or launch host", async () =>
 test("searches Wave for an existing checkout using the stable client reference", async () => {
   let requestedUrl;
   const session = {
-    id: "cos-existing-001",
+    id: "cos-existing001",
     amount: "2500",
     currency: "XOF",
     client_reference: "baddielink-topup-001",
     checkout_status: "open",
     payment_status: "processing",
-    wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+    wave_launch_url: "https://pay.wave.com/c/cos-existing001",
   };
   const result = await searchWaveCheckoutByClientReference({
     apiKey: "sandbox-key",
@@ -199,7 +199,7 @@ test("searches Wave for an existing checkout using the stable client reference",
     },
   });
   assert.equal(new URL(requestedUrl).searchParams.get("client_reference"), "baddielink-topup-001");
-  assert.equal(result.id, "cos-existing-001");
+  assert.equal(result.id, "cos-existing001");
 });
 
 test("returns null when no Wave checkout exists for the client reference", async () => {
@@ -214,12 +214,12 @@ test("returns null when no Wave checkout exists for the client reference", async
 
 test("rejects multiple Wave sessions for one BLC client reference", async () => {
   const session = {
-    id: "cos-existing-001",
+    id: "cos-existing001",
     amount: "2500",
     currency: "XOF",
     client_reference: "baddielink-topup-001",
     checkout_status: "open",
-    wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+    wave_launch_url: "https://pay.wave.com/c/cos-existing001",
   };
   await assert.rejects(searchWaveCheckoutByClientReference({
     apiKey: "sandbox-key",
@@ -232,20 +232,20 @@ test("rejects multiple Wave sessions for one BLC client reference", async () => 
 test("retrieves an existing checkout and revalidates all top-up identity fields", async () => {
   const result = await retrieveWaveCheckoutSession({
     apiKey: "sandbox-key",
-    checkoutSessionId: "cos-existing-001",
+    checkoutSessionId: "cos-existing001",
     amountXof: 2500,
     clientReference: "baddielink-topup-001",
     fetchImpl: async () => new Response(JSON.stringify({
-      id: "cos-existing-001",
+      id: "cos-existing001",
       amount: "2500",
       currency: "XOF",
       client_reference: "baddielink-topup-001",
       checkout_status: "open",
       payment_status: "processing",
-      wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+      wave_launch_url: "https://pay.wave.com/c/cos-existing001",
     }), { status: 200 }),
   });
-  assert.equal(result.id, "cos-existing-001");
+  assert.equal(result.id, "cos-existing001");
 });
 
 test("does not leak provider response bodies on API errors", async () => {
