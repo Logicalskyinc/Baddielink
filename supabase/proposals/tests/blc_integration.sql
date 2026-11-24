@@ -17,6 +17,14 @@ INSERT INTO public.profiles (id, moderation_status) VALUES
   ('00000000-0000-0000-0000-000000000005', 'approved'),
   ('00000000-0000-0000-0000-000000000006', 'approved');
 
+INSERT INTO public.user_private_settings (user_id, date_of_birth, age_declaration_at) VALUES
+  ('00000000-0000-0000-0000-000000000001', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000002', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000003', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000004', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000005', DATE '1990-01-01', now()),
+  ('00000000-0000-0000-0000-000000000006', DATE '1990-01-01', now());
+
 INSERT INTO private.gift_catalog (
   id, gift_code, display_name, price_blc, face_value_xof, asset_key, is_active
 ) VALUES (
@@ -364,6 +372,61 @@ BEGIN
   END IF;
 END;
 $ci$;
+
+-- Reward identity must match both the immutable attribution and the actual gift sender.
+DO $identity$
+DECLARE
+  referral_only_gift private.gift_transactions%ROWTYPE;
+  sender_two_attribution uuid;
+  sender_five_attribution uuid;
+BEGIN
+  SELECT * INTO STRICT referral_only_gift
+  FROM private.gift_transactions
+  WHERE idempotency_key = 'ci-referral-only-send-005';
+
+  SELECT id INTO STRICT sender_two_attribution
+  FROM private.referral_attributions
+  WHERE referred_user_id = '00000000-0000-0000-0000-000000000002';
+
+  SELECT id INTO STRICT sender_five_attribution
+  FROM private.referral_attributions
+  WHERE referred_user_id = '00000000-0000-0000-0000-000000000005';
+
+  -- Wrong referrer for an otherwise matching attribution and gift sender.
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 10, 1, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Mismatched reward referrer was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+
+  -- Attribution identity matches, but the gift was sent by a different member.
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_two_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000002',
+      referral_only_gift.id, 10, 1, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Reward for a gift sent by another member was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+END;
+$identity$;
 
 -- Force a failure inside the AFTER INSERT provenance trigger, after settlement
 -- has decremented inventory and written draft ledger rows. The statement must
