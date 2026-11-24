@@ -19,7 +19,7 @@ FROM public.process_wave_checkout_event(
   :'wave_webhook_provider_id'::uuid,
   'evt-ciwave0002',
   'checkout.session.completed',
-  'cos-ciwavecheckout0002',
+  'cos-ciwavechk0002',
   'TCNCIWAVE0002',
   :'wave_webhook_client_reference',
   1000,
@@ -28,7 +28,7 @@ FROM public.process_wave_checkout_event(
   'succeeded',
   repeat('d', 64),
   now(),
-  '{"id":"evt-ciwave0002","type":"checkout.session.completed","data":{"id":"cos-ciwavecheckout0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
+  '{"id":"evt-ciwave0002","type":"checkout.session.completed","data":{"id":"cos-ciwavechk0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
 )
 \gset
 
@@ -44,7 +44,7 @@ FROM public.process_wave_checkout_event(
   :'wave_webhook_provider_id'::uuid,
   'evt-ciwave0002',
   'checkout.session.completed',
-  'cos-ciwavecheckout0002',
+  'cos-ciwavechk0002',
   'TCNCIWAVE0002',
   :'wave_webhook_client_reference',
   1000,
@@ -53,7 +53,7 @@ FROM public.process_wave_checkout_event(
   'succeeded',
   repeat('d', 64),
   now(),
-  '{"id":"evt-ciwave0002","type":"checkout.session.completed","data":{"id":"cos-ciwavecheckout0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
+  '{"id":"evt-ciwave0002","type":"checkout.session.completed","data":{"id":"cos-ciwavechk0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
 )
 \gset
 
@@ -70,7 +70,7 @@ FROM public.process_wave_checkout_event(
   :'wave_webhook_provider_id'::uuid,
   'evt-ciwave0002-second',
   'checkout.session.completed',
-  'cos-ciwavecheckout0002',
+  'cos-ciwavechk0002',
   'TCNCIWAVE0002',
   :'wave_webhook_client_reference',
   1000,
@@ -79,7 +79,7 @@ FROM public.process_wave_checkout_event(
   'succeeded',
   repeat('e', 64),
   now(),
-  '{"id":"evt-ciwave0002-second","type":"checkout.session.completed","data":{"id":"cos-ciwavecheckout0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
+  '{"id":"evt-ciwave0002-second","type":"checkout.session.completed","data":{"id":"cos-ciwavechk0002","amount":"1000","currency":"XOF","payment_status":"succeeded","checkout_status":"complete","transaction_id":"TCNCIWAVE0002"}}'::jsonb
 )
 \gset
 
@@ -95,7 +95,7 @@ FROM public.process_wave_checkout_event(
   :'wave_webhook_provider_id'::uuid,
   'evt-ciwave0002',
   'checkout.session.completed',
-  'cos-ciwavecheckout0002',
+  'cos-ciwavechk0002',
   'TCNCIWAVE0002',
   :'wave_webhook_client_reference',
   1000,
