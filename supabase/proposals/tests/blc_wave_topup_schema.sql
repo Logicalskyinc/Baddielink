@@ -278,7 +278,7 @@ BEGIN
       original_amount_blc, remaining_amount_blc, consumed_amount_blc
     ) VALUES (
       v_second_topup_id, '00000000-0000-0000-0000-000000000002',
-      v_other_wallet_id, v_second_credit_tx_id, 5, 5, 0
+      v_other_wallet_id, v_second_credit_tx_id, 1, 1, 0
     );
     RAISE EXCEPTION 'Cross-member top-up funding wallet was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
