@@ -25,6 +25,7 @@
 
   function showAuth(mode = "signup") {
     const signup = mode === "signup";
+    document.body.classList.remove("authenticated");
     window.__baddielinkMode = mode;
     $("#welcome")?.classList.add("hidden");
     $("#app-shell")?.classList.add("hidden");
@@ -50,6 +51,7 @@
   }
 
   function showWelcome() {
+    document.body.classList.remove("authenticated");
     $("#app-shell")?.classList.add("hidden");
     $("#auth-panel")?.classList.add("hidden");
     $("#welcome")?.classList.remove("hidden");
