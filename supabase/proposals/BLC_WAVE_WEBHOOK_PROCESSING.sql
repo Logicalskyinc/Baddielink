@@ -345,6 +345,13 @@ AS $function$
   );
 $function$;
 
+-- Deferred ledger constraint triggers execute at transaction end under the
+-- invoking service_role. Grant only the read/update rights those trigger bodies
+-- require; service_role still cannot insert ledger entries directly.
+GRANT USAGE ON SCHEMA private TO service_role;
+GRANT SELECT, UPDATE ON TABLE private.wallet_transactions TO service_role;
+GRANT SELECT ON TABLE private.wallet_ledger_entries TO service_role;
+
 REVOKE ALL ON FUNCTION private.process_wave_checkout_event(
   uuid, text, text, text, text, text, bigint, text, text, text, text, timestamptz, jsonb
 ) FROM PUBLIC, anon, authenticated;
