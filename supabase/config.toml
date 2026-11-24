@@ -1,0 +1,5 @@
+[functions.create-wave-checkout]
+verify_jwt = true
+
+[functions.wave-webhook]
+verify_jwt = false
