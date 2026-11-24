@@ -1036,3 +1036,56 @@ END;
 $referral_permissions_assert$;
 
 SELECT 'BLC referral lifecycle integration tests passed' AS result;
+
+
+-- Privacy boundary: a member's summary must not expose another owner's
+-- referral activity. Owner 12 has a code but no attributed signups; owner 1
+-- has existing referrals in this fixture.
+DO $referral_dashboard_privacy_assert$
+DECLARE summary_row record;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',
+    '00000000-0000-0000-0000-000000000012', true);
+
+  SELECT * INTO STRICT summary_row
+  FROM public.get_my_referral_summary();
+
+  IF summary_row.total_referrals <> 0
+     OR summary_row.rewarded_referrals <> 0
+     OR summary_row.pending_referrals <> 0
+     OR summary_row.total_rewards_blc <> 0 THEN
+    RAISE EXCEPTION 'Referral dashboard exposed another member''s activity';
+  END IF;
+END;
+$referral_dashboard_privacy_assert$;
+
+-- Self-referral must fail even when a member submits their own valid code
+-- through signup metadata. The auth.users insert must roll back atomically.
+DO $referral_self_signup_assert$
+DECLARE own_code text;
+BEGIN
+  SELECT referral_code INTO STRICT own_code
+  FROM private.referral_codes
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000012';
+
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000015',
+      'lifecycle-self-signup@example.test',
+      now(),
+      pg_catalog.jsonb_build_object('referral_code', own_code)
+    );
+    RAISE EXCEPTION 'Self-referral signup unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000015') THEN
+    RAISE EXCEPTION 'Self-referral signup left an auth.users row behind';
+  END IF;
+END;
+$referral_self_signup_assert$;
+
+SELECT 'BLC referral privacy and self-referral tests passed' AS result;
