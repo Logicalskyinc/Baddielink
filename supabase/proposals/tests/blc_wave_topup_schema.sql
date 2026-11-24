@@ -137,10 +137,21 @@ BEGIN
   END;
 
   -- A wallet transaction owned by another member cannot be linked to this top-up.
-  SELECT id INTO STRICT v_other_wallet_id
+  SELECT id INTO v_other_wallet_id
   FROM private.wallet_accounts
   WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
     AND account_kind = 'purchased_blc';
+
+  IF v_other_wallet_id IS NULL THEN
+    INSERT INTO private.wallet_accounts (
+      owner_user_id, account_code, account_kind, unit, is_system
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000001',
+      'ci-wave-other-member-purchased-wallet',
+      'purchased_blc', 'BLC', false
+    ) RETURNING id INTO v_other_wallet_id;
+  END IF;
+
   SELECT id INTO STRICT v_issuance_id
   FROM private.wallet_accounts WHERE account_code = 'system:blc-issuance';
 
