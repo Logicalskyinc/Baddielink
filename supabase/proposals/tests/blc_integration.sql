@@ -9,6 +9,36 @@ INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
   ('00000000-0000-0000-0000-000000000005', 'referral-only-sender@example.test', now()),
   ('00000000-0000-0000-0000-000000000006', 'rollback-sender@example.test', now());
 
+-- Wallet account identity must match its economic class.
+DO $account_ownership$
+BEGIN
+  BEGIN
+    INSERT INTO private.wallet_accounts (
+      owner_user_id, account_code, account_kind, unit, is_system
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000001',
+      'ci-invalid-member-platform-account',
+      'platform_xof_revenue', 'XOF', false
+    );
+    RAISE EXCEPTION 'Member-owned platform account was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  BEGIN
+    INSERT INTO private.wallet_accounts (
+      owner_user_id, account_code, account_kind, unit, is_system
+    ) VALUES (
+      NULL, 'ci-invalid-system-member-account',
+      'purchased_blc', 'BLC', true
+    );
+    RAISE EXCEPTION 'System-owned member account was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+END;
+$account_ownership$;
+
 INSERT INTO public.profiles (id, moderation_status) VALUES
   ('00000000-0000-0000-0000-000000000001', 'approved'),
   ('00000000-0000-0000-0000-000000000002', 'approved'),
