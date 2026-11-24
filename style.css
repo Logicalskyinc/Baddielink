@@ -182,3 +182,15 @@
 .salon-invite-form .button{white-space:nowrap}
 @media(max-width:760px){.salon-layout{grid-template-columns:1fr}.salon-create-card{order:-1}}
 @media(max-width:650px){.salon-toolbar{grid-template-columns:1fr 1fr}.salon-toolbar input{grid-column:1/-1}.salon-toolbar button{min-width:0}.salon-list{grid-template-columns:1fr}.salon-member-row{align-items:flex-start;flex-direction:column}.salon-invite-form{grid-template-columns:1fr}}
+
+
+/* Gift catalogue preview: display-only until wallet ledger and settlement are validated */
+.gift-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin:14px 0}
+.gift-preview-card{display:flex;flex-direction:column;align-items:center;gap:12px;min-width:0;padding:20px 16px;border:1px solid var(--line);border-radius:14px;background:#202027;text-align:center}
+.gift-preview-art{width:72px;height:72px;display:grid;place-items:center;border-radius:20px;background:#e9588420;font-size:38px}
+.gift-preview-card h4{margin:0 0 5px;font-size:14px}
+.gift-preview-card p{min-height:32px;margin:0;color:var(--muted);font-size:10px;line-height:1.55}
+.gift-preview-card .button{width:100%;font-size:10px}
+.gift-preview-card .button:disabled{opacity:.55;cursor:not-allowed}
+.gift-preview-notice{margin-top:16px}
+@media(max-width:650px){.gift-preview-grid{grid-template-columns:1fr 1fr;gap:9px}.gift-preview-card{padding:15px 10px}.gift-preview-art{width:60px;height:60px;font-size:32px}.gift-preview-card p{min-height:48px}.gift-preview-card .button{padding:8px 5px;font-size:9px}}
