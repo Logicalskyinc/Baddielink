@@ -379,6 +379,7 @@ DECLARE
   referral_only_gift private.gift_transactions%ROWTYPE;
   sender_two_attribution uuid;
   sender_five_attribution uuid;
+  unrelated_wallet_transaction uuid;
 BEGIN
   SELECT * INTO STRICT referral_only_gift
   FROM private.gift_transactions
@@ -406,6 +407,44 @@ BEGIN
     );
     RAISE EXCEPTION 'Mismatched reward referrer was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+
+  -- The reward wallet transaction must be the same transaction that settled this gift.
+  SELECT id INTO STRICT unrelated_wallet_transaction
+  FROM private.wallet_transactions
+  WHERE idempotency_key = 'ci-seed-purchased-credit-001';
+
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 10, 1, unrelated_wallet_transaction
+    );
+    RAISE EXCEPTION 'Reward linked to an unrelated wallet transaction was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+
+  -- Reward amount must equal floor(eligible amount * 5%).
+  BEGIN
+    INSERT INTO private.referral_rewards (
+      referral_attribution_id, referrer_user_id, referred_user_id,
+      gift_transaction_id, eligible_amount_xof, reward_amount_blc,
+      wallet_transaction_id
+    ) VALUES (
+      sender_five_attribution,
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000005',
+      referral_only_gift.id, 100, 4, referral_only_gift.wallet_transaction_id
+    );
+    RAISE EXCEPTION 'Incorrect five-percent reward amount was accepted';
+  EXCEPTION WHEN check_violation THEN
     NULL;
   END;
 
