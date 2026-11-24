@@ -56,6 +56,12 @@ jobs:
       - name: Test Wave signature and checkout utilities
         run: node --test supabase/functions/_shared/wave.test.js
 
+      - name: Set up Deno for Supabase Edge Function validation
+        uses: denoland/setup-deno@v2
+
+      - name: Type-check Wave checkout Edge Function
+        run: deno check --no-lock supabase/functions/create-wave-checkout/index.ts
+
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
