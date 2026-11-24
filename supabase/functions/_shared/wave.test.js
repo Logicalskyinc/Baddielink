@@ -5,6 +5,8 @@ import {
   buildWaveCheckoutRequest,
   createWaveCheckoutSession,
   parseWaveSignatureHeader,
+  retrieveWaveCheckoutSession,
+  searchWaveCheckoutByClientReference,
   verifyWaveWebhookSignature,
 } from "./wave.js";
 
@@ -173,6 +175,77 @@ test("rejects a Wave session with mismatched amount or launch host", async () =>
     }), { status: 200 }),
   };
   await assert.rejects(createWaveCheckoutSession(input), /does not match/);
+});
+
+
+test("searches Wave for an existing checkout using the stable client reference", async () => {
+  let requestedUrl;
+  const session = {
+    id: "cos-existing-001",
+    amount: "2500",
+    currency: "XOF",
+    client_reference: "baddielink-topup-001",
+    checkout_status: "open",
+    payment_status: "processing",
+    wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+  };
+  const result = await searchWaveCheckoutByClientReference({
+    apiKey: "sandbox-key",
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    fetchImpl: async (url) => {
+      requestedUrl = url;
+      return new Response(JSON.stringify({ result: [session] }), { status: 200 });
+    },
+  });
+  assert.equal(new URL(requestedUrl).searchParams.get("client_reference"), "baddielink-topup-001");
+  assert.equal(result.id, "cos-existing-001");
+});
+
+test("returns null when no Wave checkout exists for the client reference", async () => {
+  const result = await searchWaveCheckoutByClientReference({
+    apiKey: "sandbox-key",
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    fetchImpl: async () => new Response(JSON.stringify({ result: [] }), { status: 200 }),
+  });
+  assert.equal(result, null);
+});
+
+test("rejects multiple Wave sessions for one BLC client reference", async () => {
+  const session = {
+    id: "cos-existing-001",
+    amount: "2500",
+    currency: "XOF",
+    client_reference: "baddielink-topup-001",
+    checkout_status: "open",
+    wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+  };
+  await assert.rejects(searchWaveCheckoutByClientReference({
+    apiKey: "sandbox-key",
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    fetchImpl: async () => new Response(JSON.stringify({ result: [session, session] }), { status: 200 }),
+  }), /Multiple Wave checkout sessions/);
+});
+
+test("retrieves an existing checkout and revalidates all top-up identity fields", async () => {
+  const result = await retrieveWaveCheckoutSession({
+    apiKey: "sandbox-key",
+    checkoutSessionId: "cos-existing-001",
+    amountXof: 2500,
+    clientReference: "baddielink-topup-001",
+    fetchImpl: async () => new Response(JSON.stringify({
+      id: "cos-existing-001",
+      amount: "2500",
+      currency: "XOF",
+      client_reference: "baddielink-topup-001",
+      checkout_status: "open",
+      payment_status: "processing",
+      wave_launch_url: "https://pay.wave.com/c/cos-existing-001",
+    }), { status: 200 }),
+  });
+  assert.equal(result.id, "cos-existing-001");
 });
 
 test("does not leak provider response bodies on API errors", async () => {
