@@ -215,4 +215,70 @@ FOR EACH ROW EXECUTE FUNCTION private.record_gift_inventory_topup_sources();
 REVOKE ALL ON FUNCTION private.record_gift_inventory_topup_sources()
 FROM PUBLIC, anon, authenticated;
 
+-- Gift sends decrement the existing aggregate purchased-funded inventory
+-- balance. Mirror that exact decrement into the top-up-specific child lots,
+-- consuming the oldest source first. The aggregate row is already locked by
+-- the existing referral provenance trigger; child rows are additionally locked.
+CREATE OR REPLACE FUNCTION private.consume_gift_inventory_topup_sources()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  amount_to_consume bigint;
+  source_row record;
+  source_consumption bigint;
+BEGIN
+  IF NEW.purchased_blc_remaining > OLD.purchased_blc_remaining THEN
+    RAISE EXCEPTION 'Top-up-backed inventory provenance cannot be increased by update';
+  END IF;
+
+  amount_to_consume := OLD.purchased_blc_remaining - NEW.purchased_blc_remaining;
+
+  IF amount_to_consume = 0 THEN
+    RETURN NEW;
+  END IF;
+
+  FOR source_row IN
+    SELECT id, remaining_purchased_blc
+    FROM private.gift_inventory_topup_funding_lots
+    WHERE gift_inventory_funding_lot_id = NEW.id
+      AND remaining_purchased_blc > 0
+    ORDER BY created_at, topup_funding_lot_id, id
+    FOR UPDATE
+  LOOP
+    EXIT WHEN amount_to_consume = 0;
+
+    source_consumption := least(
+      amount_to_consume,
+      source_row.remaining_purchased_blc
+    );
+
+    UPDATE private.gift_inventory_topup_funding_lots
+    SET remaining_purchased_blc = remaining_purchased_blc - source_consumption,
+        consumed_purchased_blc = consumed_purchased_blc + source_consumption
+    WHERE id = source_row.id;
+
+    amount_to_consume := amount_to_consume - source_consumption;
+  END LOOP;
+
+  IF amount_to_consume <> 0 THEN
+    RAISE EXCEPTION
+      'Gift settlement consumed more purchased BLC than top-up inventory sources by %',
+      amount_to_consume
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER gift_inventory_consume_topup_sources
+AFTER UPDATE OF purchased_blc_remaining ON private.gift_inventory_funding_lots
+FOR EACH ROW EXECUTE FUNCTION private.consume_gift_inventory_topup_sources();
+
+REVOKE ALL ON FUNCTION private.consume_gift_inventory_topup_sources()
+FROM PUBLIC, anon, authenticated;
+
 COMMIT;
