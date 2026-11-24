@@ -47,6 +47,20 @@
     window.BaddieLinkUI?.showAuth(mode);
   }
 
+  function applyReferralCodeFromUrl() {
+    if (!referralCodeInput) return;
+    const params = new URLSearchParams(window.location.search);
+    const code = (params.get("ref") || "").trim().toUpperCase();
+    if (!code) return;
+    // Match the server-generated 24-character hexadecimal referral code.
+    if (!/^[A-F0-9]{24}$/.test(code)) {
+      message("Le lien de parrainage semble invalide. Vous pouvez saisir un code valide manuellement.", true);
+      return;
+    }
+    referralCodeInput.value = code;
+    referralCodeInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
   async function ensureAdultDeclaration(user) {
     const { data: settings, error } = await client
       .from("user_private_settings")
@@ -1452,6 +1466,7 @@
   });
   window.baddielinkSupabase = client;
 
+  applyReferralCodeFromUrl();
   form.addEventListener("submit", submitAuth, true);
 
   client.auth.onAuthStateChange((event) => {
