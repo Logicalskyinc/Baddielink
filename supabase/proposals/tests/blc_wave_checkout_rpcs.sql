@@ -49,24 +49,15 @@ SELECT * FROM public.claim_wave_checkout_creation(
   :'wave_checkout_topup_id'::uuid
 );
 
-DO $wave_checkout_claim_replay$
-DECLARE
-  v_status text;
-  v_topup_id uuid;
-BEGIN
-  SELECT topup_id INTO STRICT v_topup_id
-  FROM private.blc_checkout_requests
-  WHERE user_id = '00000000-0000-0000-0000-000000000002'
-    AND idempotency_key = 'ci-wave-checkout-key-0002';
+SELECT claim_status AS wave_checkout_replay_status
+FROM public.claim_wave_checkout_creation(:'wave_checkout_topup_id'::uuid)
+\gset
 
-  SELECT claim_status INTO STRICT v_status
-  FROM public.claim_wave_checkout_creation(v_topup_id);
-
-  IF v_status <> 'in_progress' THEN
-    RAISE EXCEPTION 'Concurrent checkout claim expected in_progress, received %', v_status;
-  END IF;
-END;
-$wave_checkout_claim_replay$;
+SELECT CASE
+  WHEN :'wave_checkout_replay_status' = 'in_progress'
+  THEN 'concurrent checkout claim protection passed'
+  ELSE (1 / 0)::text
+END AS claim_replay_result;
 
 SELECT public.attach_wave_checkout_session(
   :'wave_checkout_topup_id'::uuid,
