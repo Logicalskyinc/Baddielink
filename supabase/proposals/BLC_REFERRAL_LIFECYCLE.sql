@@ -126,6 +126,42 @@ REVOKE ALL ON FUNCTION public.deactivate_my_referral_code() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_my_referral_code() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.deactivate_my_referral_code() TO authenticated;
 
+-- Aggregate-only referral dashboard. Never returns referred member identities.
+CREATE OR REPLACE FUNCTION public.get_my_referral_summary()
+RETURNS TABLE (
+  total_referrals bigint,
+  rewarded_referrals bigint,
+  pending_referrals bigint,
+  total_rewards_blc bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  caller_id uuid;
+BEGIN
+  caller_id := auth.uid();
+  IF caller_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required' USING ERRCODE = '28000';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    count(DISTINCT a.id)::bigint,
+    count(DISTINCT r.referral_attribution_id)::bigint,
+    (count(DISTINCT a.id) - count(DISTINCT r.referral_attribution_id))::bigint,
+    coalesce(sum(r.reward_amount_blc), 0)::bigint
+  FROM private.referral_attributions a
+  LEFT JOIN private.referral_rewards r
+    ON r.referral_attribution_id = a.id
+  WHERE a.referrer_user_id = caller_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_my_referral_summary() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_referral_summary() TO authenticated;
+
 -- Code identity is permanent. The only permitted update is active -> inactive.
 CREATE OR REPLACE FUNCTION private.guard_referral_code_lifecycle()
 RETURNS trigger
