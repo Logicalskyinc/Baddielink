@@ -175,7 +175,7 @@ export async function searchWaveCheckoutByClientReference({
   apiKey,
   amountXof,
   clientReference,
-  requestSigningSecret,
+  requestSigningSecret = undefined,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -216,7 +216,7 @@ export async function retrieveWaveCheckoutSession({
   checkoutSessionId,
   amountXof,
   clientReference,
-  requestSigningSecret,
+  requestSigningSecret = undefined,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
@@ -248,7 +248,7 @@ export async function createWaveCheckoutSession({
   clientReference,
   successUrl,
   errorUrl,
-  requestSigningSecret,
+  requestSigningSecret = undefined,
   fetchImpl = fetch,
 }) {
   if (typeof apiKey !== "string" || !apiKey.trim()) {
