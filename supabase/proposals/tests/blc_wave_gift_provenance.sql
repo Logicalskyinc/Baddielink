@@ -188,7 +188,7 @@ BEGIN
     SELECT 1 FROM private.gift_transactions
     WHERE idempotency_key = 'ci-wave-provenance-send-013'
       AND sender_user_id = '00000000-0000-0000-0000-000000000013'
-      AND purchased_funded_amount_xof = (
+      AND unit_face_value_xof = (
         SELECT price_blc FROM private.gift_catalog
         WHERE id = '10000000-0000-0000-0000-000000000001'
       )
