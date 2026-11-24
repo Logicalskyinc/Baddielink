@@ -11,6 +11,12 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["console_error_panic_hook"]
+# Explicitly opt-in issuer key for isolated browser/native test artifacts only.
+# Production/default builds must never enable this feature.
+attestation-test-issuer = []
+# Exposes a membership-merge escape hatch only to the isolated browser harness.
+# This is not authorization and must never be enabled in production artifacts.
+browser-test-admission = ["attestation-test-issuer"]
 extensions-draft = [
     "openmls/extensions-draft",
     "openmls_rust_crypto/extensions-draft",
@@ -25,10 +31,20 @@ wasm-bindgen = "0.2.84"
 openmls = { version = "0.9.0", features = ["js"] }
 openmls_traits = "0.6.0"
 openmls_rust_crypto = "0.6.0"
+openmls_memory_storage = "0.6.0"
+ciborium = "0.2"
+coset = "=0.4.2"
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "sha256"] }
 openmls_basic_credential = "0.6.0"
 tls_codec = { version = "0.5", features = ["derive", "serde", "mls"] }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 js-sys = "0.3.68"
+sha2 = "0.10"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# OpenMLS' RustCrypto dependency tree uses getrandom 0.2. Enable its
+# browser Web Crypto backend for wasm32-unknown-unknown builds.
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"
