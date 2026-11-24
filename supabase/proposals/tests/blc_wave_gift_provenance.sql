@@ -203,7 +203,7 @@ $wave_inventory_consumption$;
 -- The source ledger must preserve FIFO allocation across both top-up lots.
 DO $wave_multiple_topup_sources$
 DECLARE
-  v_user uuid := '00000000-0000-0000-0000-000000000014';
+  v_user uuid := '00000000-0000-0000-0000-000000000015';
   v_provider uuid;
   v_gift_id uuid;
   v_price bigint;
@@ -254,7 +254,7 @@ BEGIN
   FROM private.wallet_accounts WHERE account_code = 'system:blc-issuance';
 
   INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
-  VALUES ('purchase_credit', 'ci-wave-multi-credit-one-014', v_user)
+  VALUES ('purchase_credit', 'ci-wave-multi-credit-one-015', v_user)
   RETURNING id INTO v_tx_one;
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
   VALUES (v_tx_one, v_wallet, 'BLC', v_first_amount),
@@ -267,7 +267,7 @@ BEGIN
     verified_at, credited_at
   ) VALUES (
     v_user, v_provider, v_first_amount, v_first_amount, 1, 1,
-    'credited', 'ci-wave-multi-topup-one-014', v_tx_one, now(), now()
+    'credited', 'ci-wave-multi-topup-one-015', v_tx_one, now(), now()
   ) RETURNING id INTO v_topup_one;
 
   INSERT INTO private.blc_topup_funding_lots (
@@ -279,7 +279,7 @@ BEGIN
   ) RETURNING id INTO v_lot_one;
 
   INSERT INTO private.wallet_transactions(transaction_type, idempotency_key, actor_user_id)
-  VALUES ('purchase_credit', 'ci-wave-multi-credit-two-014', v_user)
+  VALUES ('purchase_credit', 'ci-wave-multi-credit-two-015', v_user)
   RETURNING id INTO v_tx_two;
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
   VALUES (v_tx_two, v_wallet, 'BLC', v_second_amount),
@@ -292,7 +292,7 @@ BEGIN
     verified_at, credited_at
   ) VALUES (
     v_user, v_provider, v_second_amount, v_second_amount, 1, 1,
-    'credited', 'ci-wave-multi-topup-two-014', v_tx_two, now(), now()
+    'credited', 'ci-wave-multi-topup-two-015', v_tx_two, now(), now()
   ) RETURNING id INTO v_topup_two;
 
   INSERT INTO private.blc_topup_funding_lots (
@@ -304,7 +304,7 @@ BEGIN
   ) RETURNING id INTO v_lot_two;
 
   v_purchase_tx := private.purchase_gift_inventory(
-    v_user, v_gift_id, 1, 'ci-wave-multi-purchase-014'
+    v_user, v_gift_id, 1, 'ci-wave-multi-purchase-015'
   );
 
   SELECT id INTO STRICT v_purchase_id
