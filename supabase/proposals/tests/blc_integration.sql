@@ -558,7 +558,33 @@ SELECT public.send_gift(
 RESET ROLE;
 COMMIT;
 
-DO $$
+-- Reusing a completed gift-send key with a different recipient must be rejected.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', true);
+SET LOCAL ROLE authenticated;
+DO $send_idempotency_mismatch$
+BEGIN
+  BEGIN
+    PERFORM public.send_gift(
+      '00000000-0000-0000-0000-000000000001',
+      '10000000-0000-0000-0000-000000000001',
+      'ci-gift-send-001'
+    );
+    RAISE EXCEPTION 'TEST_EXPECTED_SEND_IDEMPOTENCY_REJECTION';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'TEST_EXPECTED_SEND_IDEMPOTENCY_REJECTION' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM <> 'Idempotency key already used for another operation' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$send_idempotency_mismatch$;
+RESET ROLE;
+ROLLBACK;
+
+DO $
 BEGIN
   IF (SELECT count(*) FROM private.gift_transactions) <> 3
      OR (SELECT count(*) FROM private.referral_rewards) <> 2 THEN
@@ -675,6 +701,30 @@ SELECT public.purchase_gift_inventory(
 );
 RESET ROLE;
 COMMIT;
+
+-- Reusing a purchase key with a different quantity must be rejected.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000007', true);
+SET LOCAL ROLE authenticated;
+DO $purchase_idempotency_mismatch$
+BEGIN
+  BEGIN
+    PERFORM public.purchase_gift_inventory(
+      '10000000-0000-0000-0000-000000000019', 2, 'ci-rounding-purchase-007'
+    );
+    RAISE EXCEPTION 'TEST_EXPECTED_PURCHASE_IDEMPOTENCY_REJECTION';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'TEST_EXPECTED_PURCHASE_IDEMPOTENCY_REJECTION' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM <> 'Idempotency key already used for another purchase' THEN
+      RAISE;
+    END IF;
+  END;
+END;
+$purchase_idempotency_mismatch$;
+RESET ROLE;
+ROLLBACK;
 
 -- Funding provenance lot identity must match its source purchase.
 DO $funding_lot_identity$
