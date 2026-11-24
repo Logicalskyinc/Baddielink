@@ -12,7 +12,7 @@ WHERE provider_code = 'wave'
 SELECT set_config(
   'request.jwt.claim.sub',
   '00000000-0000-0000-0000-000000000002',
-  true
+  false
 );
 
 SET ROLE authenticated;
@@ -30,7 +30,7 @@ FROM public.create_wave_topup(1000, 'ci-wave-checkout-key-0002')
 SELECT CASE
   WHEN :'wave_checkout_topup_id' = :'wave_checkout_retry_topup_id'
   THEN 'idempotent retry passed'
-  ELSE 1 / 0::text
+  ELSE (1 / 0)::text
 END AS idempotency_result;
 
 -- Reusing the same key for a different amount must fail.
