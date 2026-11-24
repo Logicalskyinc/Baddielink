@@ -425,4 +425,79 @@ BEGIN
 END;
 $wave_multiple_topup_consumption$;
 
+
+DO $wave_funding_lot_immutability$
+DECLARE
+  v_topup_lot uuid;
+  v_child_lot uuid;
+  v_rejected boolean;
+BEGIN
+  SELECT id INTO STRICT v_topup_lot
+  FROM private.blc_topup_funding_lots
+  WHERE topup_id = (
+    SELECT id FROM private.blc_topups
+    WHERE client_reference = 'ci-wave-multi-topup-two-015'
+  );
+
+  SELECT id INTO STRICT v_child_lot
+  FROM private.gift_inventory_topup_funding_lots
+  WHERE inventory_purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-wave-multi-purchase-015'
+    )
+  )
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1;
+
+  v_rejected := false;
+  BEGIN
+    UPDATE private.blc_topup_funding_lots
+    SET remaining_amount_blc = remaining_amount_blc + 1
+    WHERE id = v_topup_lot;
+  EXCEPTION WHEN OTHERS THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'Top-up funding lot accepted a balance restoration';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    UPDATE private.blc_topup_funding_lots
+    SET original_amount_blc = original_amount_blc + 1
+    WHERE id = v_topup_lot;
+  EXCEPTION WHEN OTHERS THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'Top-up funding lot accepted an original amount mutation';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    UPDATE private.gift_inventory_topup_funding_lots
+    SET remaining_purchased_blc = remaining_purchased_blc + 1
+    WHERE id = v_child_lot;
+  EXCEPTION WHEN OTHERS THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'Gift inventory top-up source accepted a balance restoration';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    DELETE FROM private.gift_inventory_topup_funding_lots
+    WHERE id = v_child_lot;
+  EXCEPTION WHEN OTHERS THEN
+    v_rejected := true;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'Gift inventory top-up source accepted deletion';
+  END IF;
+END;
+$wave_funding_lot_immutability$;
+
 SELECT 'BLC Wave gift inventory provenance tests passed' AS result;
