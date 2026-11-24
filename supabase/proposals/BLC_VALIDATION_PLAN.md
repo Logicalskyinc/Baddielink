@@ -9,6 +9,7 @@ Status: design-stage test plan. No proposal SQL in this directory has been appli
 3. `BLC_REFERRAL_REWARDS.sql`
 4. `BLC_REFERRAL_PROVENANCE.sql`
 5. `BLC_GIFT_RPC_WRAPPERS.sql`
+6. `BLC_REFERRAL_LIFECYCLE.sql`
 
 The deferred-referral provenance triggers require the gift tables, referral tables and ledger foundation. They must all be installed before any gift inventory purchase or gift-send call is allowed.
 
@@ -79,6 +80,20 @@ Also test:
 - Duplicate gift requests do not create duplicate rewards.
 - Refund/chargeback and compensating-ledger treatment is designed before real-money top-ups are enabled.
 - Referral BLC cannot be withdrawn or transferred as cash.
+
+## Referral-code lifecycle tests
+
+- Authenticated members can retrieve or create only their own referral code.
+- Repeated code retrieval returns the same code and never creates duplicates.
+- Generated codes use a high-entropy server-side value; clients cannot choose or reassign code ownership.
+- Referral code identity is immutable; deactivation is permanent and idempotent.
+- Anonymous users cannot execute referral-code lifecycle functions.
+- Signup without a referral code remains valid and creates no attribution.
+- Signup with a valid active code atomically attributes the new account to the code owner.
+- Invalid, inactive or self-referral codes reject signup and roll back the auth.users insert.
+- Signup metadata supplies only the code string; the database resolves the referrer identity.
+- Changing user metadata after signup cannot change the immutable attribution.
+- Concurrent code retrieval and deactivation serialize on the member identity; concurrent code use and deactivation serialize on the code row.
 
 ## Security tests
 
