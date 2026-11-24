@@ -43,7 +43,7 @@ async function readBodyBounded(request: Request, maxBytes: number): Promise<stri
 Deno.serve(async (request: Request) => {
   const allowedOrigin = Deno.env.get("BADDIELINK_ALLOWED_ORIGIN");
   const origin = request.headers.get("origin");
-  const cors = allowedOrigin && origin === allowedOrigin
+  const cors: Record<string, string> = allowedOrigin && origin === allowedOrigin
     ? {
         "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
