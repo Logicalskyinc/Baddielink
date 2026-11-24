@@ -1,6 +1,6 @@
 # BLC Wave webhook processing design
 
-Status: design proposal only. No Edge Function is deployed, no Wave credentials are configured, and no payment is accepted or credited by this document.
+Status: implementation exists on the review branch and is covered by isolated CI tests. No Edge Function is deployed, no Wave credentials are configured, and no real payment is accepted or credited.
 
 ## Confirmed Wave Checkout contract
 
@@ -13,6 +13,18 @@ The implementation targets the Wave Business Checkout API, not unrelated Wave pr
 - XOF amounts are integer strings with no decimal places.
 - A completed payment is represented by `checkout_status = complete` and `payment_status = succeeded`.
 - Wave's webhook event example uses `type = checkout.session.completed` and wraps the session in `data`.
+
+## Checkout creation and retry safety
+
+The review branch also contains `create-wave-checkout`, an authenticated Edge Function.
+
+- The member identity comes from a verified Supabase access token. The request body supplies only the XOF amount and a client-generated idempotency key.
+- The database creates a pending top-up and a stable, opaque `client_reference`; the caller cannot supply the member ID or provider account.
+- A database claim serializes concurrent checkout creation for the same top-up.
+- Wave's Checkout API documentation does not specify an `Idempotency-Key` header for session creation. The function therefore searches Wave by the stable `client_reference` before creating a new session, allowing retries to recover a session created before a timeout.
+- The function persists the Wave checkout-session ID before returning the launch URL. If persistence cannot be confirmed, it does not return an unlinked payment URL.
+- Open sessions return a launch URL. Completed sessions do not return a launch URL; expired sessions require a new top-up request key.
+- The launch URL must be opened in the user's browser, not captured inside a mobile webview.
 
 ## Receiver architecture
 
@@ -46,10 +58,10 @@ The event payload is a notification, not an instruction to credit a user ID. Res
 
 ## Atomic database transaction
 
-The Edge Function should call one narrowly scoped database RPC after signature and provider-session verification. That RPC must perform the following in one PostgreSQL transaction:
+The `wave-webhook` Edge Function verifies the signature, retrieves the session from Wave, and calls the service-role-only `public.process_wave_checkout_event` RPC. The RPC performs the following in one PostgreSQL transaction:
 
 1. Insert the provider event using the unique `(provider_account_id, provider_event_id)` key and persist the payload hash.
-2. On an identical duplicate event, return the prior result without creating another wallet transaction. If the same event ID arrives with a different payload hash, reject it and raise a security alert.
+2. On an identical duplicate event, return the prior result without creating another wallet transaction. If the same event ID arrives with a different payload hash, mark the event `review_required`; alerting is not yet implemented.
 3. Lock the matching top-up row with `FOR UPDATE`.
 4. Validate the top-up state and every expected identity and amount field again inside the database.
 5. Ensure no other top-up already owns the same provider transaction ID or checkout reference.
@@ -83,4 +95,4 @@ If a signed event is authentic but does not match the pending top-up, do not cre
 
 ## Explicit exclusions
 
-This design does not enable checkout creation, production credentials, wallet credit, refunds, chargebacks, cash-out, Mobile Money payouts, or deployment. Each requires its own implementation, tests, and approval. Refund and chargeback accounting remains a separate release blocker.
+The review-branch code implements sandbox checkout creation and an atomic wallet-credit processor, but does not enable production credentials, real wallet credits, refunds, chargebacks, cash-out, Mobile Money payouts, or deployment. Each requires its own implementation, tests, and approval. Refund and chargeback accounting remains a separate release blocker.
