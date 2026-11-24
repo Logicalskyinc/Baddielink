@@ -896,6 +896,47 @@ BEGIN
 END;
 $invalid_signup_assert$;
 
+-- Inactive codes must fail signup atomically. Omitting a code remains valid
+-- and creates no attribution.
+DO $inactive_signup_assert$
+BEGIN
+  BEGIN
+    INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+    VALUES (
+      '00000000-0000-0000-0000-000000000013',
+      'lifecycle-inactive-signup@example.test',
+      now(),
+      '{"referral_code":"INACTIVE-CODE-006"}'::jsonb
+    );
+    RAISE EXCEPTION 'Signup with inactive referral code unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF EXISTS (SELECT 1 FROM auth.users
+             WHERE id = '00000000-0000-0000-0000-000000000013') THEN
+    RAISE EXCEPTION 'Inactive referral signup left an auth.users row behind';
+  END IF;
+END;
+$inactive_signup_assert$;
+
+INSERT INTO auth.users (id, email, email_confirmed_at, raw_user_meta_data)
+VALUES (
+  '00000000-0000-0000-0000-000000000014',
+  'lifecycle-no-code-signup@example.test',
+  now(),
+  '{}'::jsonb
+);
+
+DO $no_code_signup_assert$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.referral_attributions
+             WHERE referred_user_id = '00000000-0000-0000-0000-000000000014') THEN
+    RAISE EXCEPTION 'Signup without a referral code unexpectedly created attribution';
+  END IF;
+END;
+$no_code_signup_assert$;
+
 -- Deactivation is owner-scoped, idempotent and irreversible.
 BEGIN;
 SELECT set_config('request.jwt.claim.sub',
