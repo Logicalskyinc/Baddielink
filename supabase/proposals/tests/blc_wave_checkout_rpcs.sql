@@ -45,6 +45,33 @@ BEGIN
 END;
 $wave_checkout_idempotency_negative$;
 
+SELECT claim_status AS wave_claim_status
+FROM public.claim_wave_checkout_creation(:'wave_checkout_topup_id'::uuid)
+\gset
+
+DO $wave_checkout_claim_assertion$
+DECLARE
+  v_status text;
+BEGIN
+  v_status := :'wave_claim_status';
+  IF v_status <> 'claimed' THEN
+    RAISE EXCEPTION 'First checkout claim expected claimed, received %', v_status;
+  END IF;
+END;
+$wave_checkout_claim_assertion$;
+
+DO $wave_checkout_claim_replay$
+DECLARE
+  v_status text;
+BEGIN
+  SELECT claim_status INTO STRICT v_status
+  FROM public.claim_wave_checkout_creation(:'wave_checkout_topup_id'::uuid);
+  IF v_status <> 'in_progress' THEN
+    RAISE EXCEPTION 'Concurrent checkout claim expected in_progress, received %', v_status;
+  END IF;
+END;
+$wave_checkout_claim_replay$;
+
 SELECT public.attach_wave_checkout_session(
   :'wave_checkout_topup_id'::uuid,
   'cos-ci-wave-checkout-0002'
@@ -90,6 +117,7 @@ BEGIN
   END IF;
 
   IF has_function_privilege('anon', 'public.create_wave_topup(bigint,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.claim_wave_checkout_creation(uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.attach_wave_checkout_session(uuid,text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.fail_wave_topup_checkout(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'Anonymous role can execute Wave checkout RPCs';
