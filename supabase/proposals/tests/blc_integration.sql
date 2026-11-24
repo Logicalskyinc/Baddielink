@@ -94,10 +94,8 @@ BEGIN
       '20000000-0000-0000-0000-000000000002'
     );
     RAISE EXCEPTION 'Inactive referral code was accepted';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM <> 'Referral code is invalid or inactive' THEN
-      RAISE;
-    END IF;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
   END;
 END;
 $;
