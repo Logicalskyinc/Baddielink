@@ -1,162 +1,224 @@
 \set ON_ERROR_STOP on
 
--- Runs after the existing BLC integration suite in the isolated PostgreSQL CI DB.
--- These fixtures and assertions never touch production data.
+-- Isolated schema tests. This file runs after the existing BLC integration
+-- suite, which has already created eligible user 2 and its purchased wallet.
+-- It does not call Wave or create real payment evidence.
 
-INSERT INTO private.payment_provider_accounts (
-  id, provider_code, environment, provider_account_reference
-) VALUES (
-  '90000000-0000-0000-0000-000000000001',
-  'wave', 'sandbox', 'ci-wave-wallet'
-);
-
-INSERT INTO private.blc_topups (
-  id, user_id, provider_account_id, amount_xof, amount_blc,
-  conversion_rate_numerator, conversion_rate_denominator,
-  status, client_reference
-) VALUES (
-  '90000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000002',
-  '90000000-0000-0000-0000-000000000001',
-  2500, 2500, 1, 1, 'verified', 'ci-wave-topup-ref-0001'
-);
-
-INSERT INTO private.provider_payment_references (
-  topup_id, provider_account_id, reference_type, provider_reference
-) VALUES (
-  '90000000-0000-0000-0000-000000000001',
-  '90000000-0000-0000-0000-000000000001',
-  'checkout_session', 'ci-wave-checkout-0001'
-);
-
-INSERT INTO private.provider_events (
-  provider_account_id, provider_event_id, event_type,
-  provider_reference, topup_id, signature_valid,
-  payload_sha256, processing_status
-) VALUES (
-  '90000000-0000-0000-0000-000000000001',
-  'ci-wave-event-0001', 'checkout.session.completed',
-  'ci-wave-checkout-0001',
-  '90000000-0000-0000-0000-000000000001',
-  true, repeat('a', 64), 'queued'
-);
-
-DO $wave_schema_assertions$
+DO $wave_schema_setup$
 DECLARE
-  account_id uuid;
-  topup_id uuid;
+  v_provider_id uuid;
+  v_user_id uuid := '00000000-0000-0000-0000-000000000002';
+  v_purchased_account_id uuid;
+  v_issuance_account_id uuid;
+  v_credit_tx_id uuid;
+  v_topup_id uuid;
 BEGIN
-  -- Provider event IDs are unique within provider account.
-  BEGIN
-    INSERT INTO private.provider_events (
-      provider_account_id, provider_event_id, event_type,
-      signature_valid, payload_sha256
-    ) VALUES (
-      '90000000-0000-0000-0000-000000000001',
-      'ci-wave-event-0001', 'checkout.session.completed',
-      true, repeat('b', 64)
-    );
-    RAISE EXCEPTION 'Duplicate provider event ID was accepted';
-  EXCEPTION WHEN unique_violation THEN
-    NULL;
-  END;
+  SELECT id INTO STRICT v_purchased_account_id
+  FROM private.wallet_accounts
+  WHERE owner_user_id = v_user_id
+    AND account_kind = 'purchased_blc'
+    AND unit = 'BLC';
 
-  -- Invalid signatures cannot be queued for financial processing.
-  BEGIN
-    INSERT INTO private.provider_events (
-      provider_account_id, provider_event_id, event_type,
-      signature_valid, payload_sha256, processing_status
-    ) VALUES (
-      '90000000-0000-0000-0000-000000000001',
-      'ci-wave-event-invalid', 'checkout.session.completed',
-      false, repeat('c', 64), 'queued'
-    );
-    RAISE EXCEPTION 'Invalid signature event was queued';
-  EXCEPTION WHEN check_violation THEN
-    NULL;
-  END;
+  SELECT id INTO STRICT v_issuance_account_id
+  FROM private.wallet_accounts
+  WHERE account_code = 'system:blc-issuance';
+
+  INSERT INTO private.payment_provider_accounts (
+    provider_code, environment, provider_account_reference
+  ) VALUES ('wave', 'sandbox', 'ci-wave-wallet')
+  RETURNING id INTO v_provider_id;
+
+  INSERT INTO private.wallet_transactions (
+    transaction_type, idempotency_key, actor_user_id, related_reference
+  ) VALUES (
+    'purchase_credit', 'ci-wave-topup-credit-user-002', v_user_id, 'ci-wave-topup-002'
+  ) RETURNING id INTO v_credit_tx_id;
+
+  INSERT INTO private.wallet_ledger_entries (
+    transaction_id, account_id, unit, amount
+  ) VALUES
+    (v_credit_tx_id, v_purchased_account_id, 'BLC', 25),
+    (v_credit_tx_id, v_issuance_account_id, 'BLC', -25);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id,
+    verified_at, credited_at
+  ) VALUES (
+    v_user_id, v_provider_id, 25, 25, 1, 1,
+    'credited', 'ci-wave-topup-client-002', v_credit_tx_id,
+    now(), now()
+  ) RETURNING id INTO v_topup_id;
+
+  INSERT INTO private.provider_payment_references (
+    topup_id, provider_account_id, reference_type, provider_reference
+  ) VALUES
+    (v_topup_id, v_provider_id, 'checkout_session', 'ci-wave-checkout-002'),
+    (v_topup_id, v_provider_id, 'transaction', 'ci-wave-transaction-002');
+
+  INSERT INTO private.provider_events (
+    provider_account_id, provider_event_id, event_type, provider_reference,
+    topup_id, signature_valid, payload_sha256, processing_status
+  ) VALUES (
+    v_provider_id, 'ci-wave-event-002', 'checkout.session.completed',
+    'ci-wave-checkout-002', v_topup_id, true, repeat('a', 64), 'received'
+  );
+
+  INSERT INTO private.blc_topup_funding_lots (
+    topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
+    original_amount_blc, remaining_amount_blc, consumed_amount_blc
+  ) VALUES (
+    v_topup_id, v_user_id, v_purchased_account_id, v_credit_tx_id, 25, 25, 0
+  );
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM private.blc_topup_funding_lots lot
+    WHERE lot.topup_id = v_topup_id
+      AND lot.user_id = v_user_id
+      AND lot.credit_wallet_transaction_id = v_credit_tx_id
+  ) THEN
+    RAISE EXCEPTION 'Top-up funding lot lost its credit transaction identity';
+  END IF;
+END;
+$wave_schema_setup$;
+
+DO $wave_schema_negative_tests$
+DECLARE
+  v_provider_id uuid;
+  v_topup_id uuid;
+  v_credit_tx_id uuid;
+  v_other_user_tx_id uuid;
+  v_other_wallet_id uuid;
+BEGIN
+  SELECT id INTO STRICT v_provider_id
+  FROM private.payment_provider_accounts
+  WHERE provider_account_reference = 'ci-wave-wallet';
+
+  SELECT id INTO STRICT v_topup_id
+  FROM private.blc_topups
+  WHERE client_reference = 'ci-wave-topup-client-002';
+
+  SELECT credit_wallet_transaction_id INTO STRICT v_credit_tx_id
+  FROM private.blc_topups
+  WHERE id = v_topup_id;
 
   -- Conversion snapshot must exactly reconcile XOF and BLC.
   BEGIN
     INSERT INTO private.blc_topups (
       user_id, provider_account_id, amount_xof, amount_blc,
-      conversion_rate_numerator, conversion_rate_denominator,
-      client_reference
+      conversion_rate_numerator, conversion_rate_denominator, client_reference
     ) VALUES (
       '00000000-0000-0000-0000-000000000002',
-      '90000000-0000-0000-0000-000000000001',
-      2500, 2499, 1, 1, 'ci-wave-invalid-rate-0001'
+      v_provider_id, 25, 24, 1, 1, 'ci-wave-invalid-conversion'
     );
     RAISE EXCEPTION 'Mismatched XOF/BLC conversion was accepted';
   EXCEPTION WHEN check_violation THEN
     NULL;
   END;
 
-  -- A top-up funding lot must belong to the same user as its purchased wallet.
-  SELECT id INTO account_id
-  FROM private.wallet_accounts
-  WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
-    AND account_kind = 'purchased_blc';
+  -- A credited top-up cannot omit its immutable credit transaction.
+  BEGIN
+    INSERT INTO private.blc_topups (
+      user_id, provider_account_id, amount_xof, amount_blc,
+      conversion_rate_numerator, conversion_rate_denominator,
+      status, client_reference
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000002',
+      v_provider_id, 10, 10, 1, 1,
+      'credited', 'ci-wave-credit-missing'
+    );
+    RAISE EXCEPTION 'Credited top-up without journal was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
 
-  IF account_id IS NULL THEN
-    RAISE EXCEPTION 'Expected purchased wallet fixture is missing';
-  END IF;
+  -- A wallet transaction owned by another member cannot be linked to this top-up.
+  INSERT INTO private.wallet_transactions (
+    transaction_type, idempotency_key, actor_user_id
+  ) VALUES (
+    'manual_adjustment', 'ci-wave-other-owner-credit',
+    '00000000-0000-0000-0000-000000000001'
+  ) RETURNING id INTO v_other_user_tx_id;
 
   BEGIN
-    INSERT INTO private.blc_topup_funding_lots (
-      topup_id, user_id, wallet_account_id,
-      original_amount_blc, remaining_amount_blc, consumed_amount_blc
+    INSERT INTO private.blc_topups (
+      user_id, provider_account_id, amount_xof, amount_blc,
+      conversion_rate_numerator, conversion_rate_denominator,
+      status, client_reference, credit_wallet_transaction_id, credited_at
     ) VALUES (
-      '90000000-0000-0000-0000-000000000001',
       '00000000-0000-0000-0000-000000000002',
-      account_id, 2500, 2500, 0
+      v_provider_id, 1, 1, 1, 1, 'credited',
+      'ci-wave-wrong-owner-credit', v_other_user_tx_id, now()
     );
-    RAISE EXCEPTION 'Cross-user funding lot was accepted';
+    RAISE EXCEPTION 'Cross-member credit transaction was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
     NULL;
   END;
 
-  -- A verified-but-not-credited top-up must not create spendable funding provenance.
-  SELECT id INTO account_id
-  FROM private.wallet_accounts
-  WHERE owner_user_id = '00000000-0000-0000-0000-000000000002'
-    AND account_kind = 'purchased_blc';
+  DELETE FROM private.wallet_transactions WHERE id = v_other_user_tx_id;
 
-  IF account_id IS NULL THEN
-    INSERT INTO private.wallet_accounts (
-      owner_user_id, account_code, account_kind, unit, is_system
+  -- Duplicate provider event IDs must not create a second event record.
+  BEGIN
+    INSERT INTO private.provider_events (
+      provider_account_id, provider_event_id, event_type, topup_id,
+      signature_valid, payload_sha256
     ) VALUES (
-      '00000000-0000-0000-0000-000000000002',
-      'ci-wave-member-purchased-wallet',
-      'purchased_blc', 'BLC', false
-    ) RETURNING id INTO account_id;
-  END IF;
+      v_provider_id, 'ci-wave-event-002', 'checkout.session.completed',
+      v_topup_id, true, repeat('b', 64)
+    );
+    RAISE EXCEPTION 'Duplicate provider event ID was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+
+  -- Invalid-signature events cannot be queued for financial processing.
+  BEGIN
+    INSERT INTO private.provider_events (
+      provider_account_id, provider_event_id, event_type, topup_id,
+      signature_valid, payload_sha256, processing_status
+    ) VALUES (
+      v_provider_id, 'ci-wave-invalid-signature', 'checkout.session.completed',
+      v_topup_id, false, repeat('c', 64), 'queued'
+    );
+    RAISE EXCEPTION 'Invalid-signature event was queued';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  -- The funding lot must link to the top-up's exact credit journal and member.
+  SELECT id INTO STRICT v_other_wallet_id
+  FROM private.wallet_accounts
+  WHERE owner_user_id = '00000000-0000-0000-0000-000000000001'
+    AND account_kind = 'purchased_blc';
 
   BEGIN
     INSERT INTO private.blc_topup_funding_lots (
       topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
       original_amount_blc, remaining_amount_blc, consumed_amount_blc
     ) VALUES (
-      '90000000-0000-0000-0000-000000000001',
-      '00000000-0000-0000-0000-000000000002',
-      account_id, NULL, 2500, 2500, 0
+      v_topup_id, '00000000-0000-0000-0000-000000000002',
+      v_other_wallet_id, v_credit_tx_id, 25, 25, 0
     );
-    RAISE EXCEPTION 'Uncredited top-up created a funding lot';
-  EXCEPTION WHEN check_violation OR not_null_violation THEN
+    RAISE EXCEPTION 'Cross-member top-up funding wallet was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN
     NULL;
   END;
 
+  -- Browser roles receive no direct access to private financial tables/functions.
   IF has_table_privilege('anon', 'private.blc_topups', 'SELECT')
      OR has_table_privilege('authenticated', 'private.blc_topups', 'INSERT')
-     OR has_table_privilege('authenticated', 'private.provider_events', 'SELECT') THEN
-    RAISE EXCEPTION 'Client role has direct access to private top-up records';
-  END IF;
-
-  IF has_function_privilege('authenticated',
-      'private.reject_blc_topup_allocation_mutation()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Authenticated role can execute private trigger function';
+     OR has_table_privilege('anon', 'private.provider_events', 'SELECT')
+     OR has_table_privilege('authenticated', 'private.blc_topup_funding_lots', 'UPDATE')
+     OR has_function_privilege(
+       'authenticated',
+       'private.reject_blc_topup_allocation_mutation()',
+       'EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'Browser role has unexpected access to private top-up objects';
   END IF;
 END;
-$wave_schema_assertions$;
+$wave_schema_negative_tests$;
 
-SELECT 'BLC Wave top-up schema tests passed' AS result;
+SELECT 'BLC Wave top-up schema constraint tests passed' AS result;
