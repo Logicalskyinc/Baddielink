@@ -258,8 +258,8 @@ BEGIN
 
   INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
   VALUES
-    (v_second_credit_tx_id, v_member_wallet_id, 'BLC', 1),
-    (v_second_credit_tx_id, v_issuance_id, 'BLC', -1);
+    (v_second_credit_tx_id, v_member_wallet_id, 'BLC', 5),
+    (v_second_credit_tx_id, v_issuance_id, 'BLC', -5);
 
   INSERT INTO private.blc_topups (
     user_id, provider_account_id, amount_xof, amount_blc,
@@ -267,7 +267,7 @@ BEGIN
     status, client_reference, credit_wallet_transaction_id, verified_at, credited_at
   ) VALUES (
     '00000000-0000-0000-0000-000000000002',
-    v_provider_id, 1, 1, 1, 1, 'credited',
+    v_provider_id, 5, 5, 1, 1, 'credited',
     'ci-wave-second-topup-client-002', v_second_credit_tx_id, now(), now()
   ) RETURNING id INTO v_second_topup_id;
 
