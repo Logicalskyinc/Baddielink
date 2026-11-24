@@ -374,6 +374,7 @@
     document.querySelector("#auth-panel").classList.add("hidden");
     document.querySelector("#welcome").classList.add("hidden");
     document.querySelector("#app-shell").classList.remove("hidden");
+    document.body.classList.add("authenticated");
 
 
     const { data: adminAccess, error: adminAccessError } = await client.rpc("is_baddielink_admin");
@@ -415,8 +416,6 @@
       '<div class="empty-state"><span>✉</span><h3>Messagerie en préparation</h3><p>La messagerie réelle sera activée après les tests d’accès et de confidentialité.</p></div>';
     document.querySelector("#view-likes").innerHTML =
       '<div class="empty-state"><span>♡</span><h3>Vos coups de cœur</h3><p>Les likes réels seront activés avec la découverte des profils.</p></div>';
-    document.querySelector("#view-wallet").innerHTML =
-      '<div class="empty-state"><span>◇</span><h3>BaddieCoins en préparation</h3><p>Aucun solde fictif ni achat n’est affiché. Le portefeuille sera activé après la mise en place du registre sécurisé.</p></div>';
     document.querySelector("#auth-signout").classList.add("hidden");
 
     if (profile.moderation_status !== "approved") {
