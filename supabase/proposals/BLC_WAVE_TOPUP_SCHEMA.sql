@@ -176,6 +176,55 @@ CREATE TABLE private.blc_topup_funding_lots (
   CONSTRAINT blc_topup_funding_lots_id_user_unique UNIQUE (id, user_id)
 );
 
+ALTER TABLE private.blc_topups
+  ADD CONSTRAINT blc_topups_id_credit_transaction_unique
+  UNIQUE (id, credit_wallet_transaction_id);
+
+ALTER TABLE private.blc_topup_funding_lots
+  ADD COLUMN credit_wallet_transaction_id uuid;
+
+ALTER TABLE private.blc_topup_funding_lots
+  ALTER COLUMN credit_wallet_transaction_id SET NOT NULL;
+
+ALTER TABLE private.blc_topup_funding_lots
+  ADD CONSTRAINT blc_topup_funding_lots_credit_transaction_fk
+  FOREIGN KEY (topup_id, credit_wallet_transaction_id)
+  REFERENCES private.blc_topups(id, credit_wallet_transaction_id)
+  ON DELETE RESTRICT;
+
+CREATE OR REPLACE FUNCTION private.require_credited_topup_funding_lot()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $function$
+DECLARE
+  topup_row private.blc_topups%ROWTYPE;
+BEGIN
+  SELECT * INTO topup_row
+  FROM private.blc_topups
+  WHERE id = NEW.topup_id
+    AND user_id = NEW.user_id
+  FOR SHARE;
+
+  IF NOT FOUND
+     OR topup_row.status <> 'credited'
+     OR topup_row.credit_wallet_transaction_id IS DISTINCT FROM NEW.credit_wallet_transaction_id
+     OR topup_row.amount_blc IS DISTINCT FROM NEW.original_amount_blc THEN
+    RAISE EXCEPTION 'Funding lot must match a credited top-up and its wallet journal'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+CREATE TRIGGER blc_topup_funding_lot_requires_credit
+  BEFORE INSERT ON private.blc_topup_funding_lots
+  FOR EACH ROW EXECUTE FUNCTION private.require_credited_topup_funding_lot();
+
+REVOKE ALL ON FUNCTION private.require_credited_topup_funding_lot()
+FROM PUBLIC, anon, authenticated;
+
 CREATE INDEX blc_topup_funding_lots_user_idx
   ON private.blc_topup_funding_lots(user_id, created_at, id)
   WHERE remaining_amount_blc > 0;
