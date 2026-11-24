@@ -72,7 +72,6 @@ BEGIN
   SELECT c.is_active INTO code_is_active
   FROM private.referral_codes c
   WHERE c.id = NEW.referral_code_id
-    AND c.owner_user_id = NEW.referrer_user_id
   FOR SHARE;
 
   IF NOT FOUND OR NOT code_is_active THEN
