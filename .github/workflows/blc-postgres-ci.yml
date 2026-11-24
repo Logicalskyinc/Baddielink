@@ -9,6 +9,9 @@ on:
       - main
     paths:
       - "supabase/proposals/**"
+      - "supabase/migrations/**"
+      - "supabase/migration-archive/**"
+      - "docs/MIGRATION_HISTORY_RECOVERY.md"
       - ".github/workflows/blc-postgres-ci.yml"
   workflow_dispatch:
 
