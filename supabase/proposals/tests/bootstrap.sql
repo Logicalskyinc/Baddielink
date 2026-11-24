@@ -34,13 +34,24 @@ CREATE TABLE public.profiles (
   moderation_status text NOT NULL DEFAULT 'approved'
 );
 
+CREATE TABLE public.user_private_settings (
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id),
+  date_of_birth date,
+  age_declaration_at timestamptz
+);
+
 CREATE OR REPLACE FUNCTION private.is_adult_declared(target_user_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
-AS $$
-  SELECT EXISTS (SELECT 1 FROM auth.users WHERE id = target_user_id);
-$$;
+AS $
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_private_settings s
+    WHERE s.user_id = target_user_id
+      AND s.date_of_birth <= current_date - interval '18 years'
+      AND s.age_declaration_at IS NOT NULL
+  );
+$;
 
 CREATE OR REPLACE FUNCTION private.is_blocked_with(target_user_id uuid)
 RETURNS boolean
