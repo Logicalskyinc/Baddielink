@@ -226,11 +226,15 @@ Deno.serve(async (request: Request) => {
       return reply(409, { error: "checkout_state_conflict" }, cors);
     }
 
+    if (session.checkout_status === "expired") {
+      return reply(409, { error: "checkout_expired_new_request_required" }, cors);
+    }
+
     return reply(200, {
       topup_id: topup.topup_id,
       amount_xof: Number(topup.amount_xof),
       currency: "XOF",
-      checkout_url: session.wave_launch_url,
+      checkout_url: session.checkout_status === "open" ? session.wave_launch_url : null,
       checkout_status: session.checkout_status,
     }, cors);
   } catch {
