@@ -135,4 +135,67 @@ BEGIN
 END;
 $wave_inventory_provenance$;
 
+-- Sending the purchased-funded inventory unit must consume its exact top-up
+-- child source in the same settlement transaction.
+BEGIN;
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000013', true);
+SET LOCAL ROLE authenticated;
+SELECT public.send_gift(
+  '00000000-0000-0000-0000-000000000003',
+  '10000000-0000-0000-0000-000000000001',
+  'ci-wave-provenance-send-013'
+);
+RESET ROLE;
+COMMIT;
+
+DO $wave_inventory_consumption$
+DECLARE
+  v_remaining bigint;
+  v_consumed bigint;
+  v_aggregate_remaining bigint;
+  v_topup_id uuid;
+BEGIN
+  SELECT id INTO STRICT v_topup_id
+  FROM private.blc_topups
+  WHERE client_reference = 'ci-wave-provenance-topup-013';
+
+  SELECT remaining_purchased_blc, consumed_purchased_blc
+    INTO STRICT v_remaining, v_consumed
+  FROM private.gift_inventory_topup_funding_lots
+  WHERE topup_funding_lot_id = (
+    SELECT id FROM private.blc_topup_funding_lots WHERE topup_id = v_topup_id
+  );
+
+  SELECT purchased_blc_remaining INTO STRICT v_aggregate_remaining
+  FROM private.gift_inventory_funding_lots
+  WHERE purchase_id = (
+    SELECT id FROM private.gift_inventory_purchases
+    WHERE wallet_transaction_id = (
+      SELECT id FROM private.wallet_transactions
+      WHERE idempotency_key = 'ci-wave-provenance-purchase-013'
+    )
+  );
+
+  IF v_remaining <> 0 OR v_consumed <> (
+    SELECT amount_blc - 50 FROM private.blc_topups WHERE id = v_topup_id
+  ) OR v_aggregate_remaining <> 0 THEN
+    RAISE EXCEPTION
+      'Gift settlement did not consume exact top-up inventory source: remaining %, consumed %, aggregate %',
+      v_remaining, v_consumed, v_aggregate_remaining;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM private.gift_transactions
+    WHERE idempotency_key = 'ci-wave-provenance-send-013'
+      AND sender_user_id = '00000000-0000-0000-0000-000000000013'
+      AND purchased_funded_amount_xof = (
+        SELECT price_blc FROM private.gift_catalog
+        WHERE id = '10000000-0000-0000-0000-000000000001'
+      )
+  ) THEN
+    RAISE EXCEPTION 'Gift settlement does not reflect purchased-funded amount';
+  END IF;
+END;
+$wave_inventory_consumption$;
+
 SELECT 'BLC Wave gift inventory provenance tests passed' AS result;
