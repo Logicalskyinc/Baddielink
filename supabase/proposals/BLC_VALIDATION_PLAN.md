@@ -81,6 +81,17 @@ Also test:
 - Refund/chargeback and compensating-ledger treatment is designed before real-money top-ups are enabled.
 - Referral BLC cannot be withdrawn or transferred as cash.
 
+## Member referral dashboard
+
+- The member dashboard reads only the authenticated owner's referral-code status.
+- Aggregate summary RPC returns total attributed signups, distinct referred members who have earned at least one reward, pending referred members, and total BLC rewards.
+- No referred member names, email addresses, profile fields, or account identifiers are returned.
+- Dashboard counts reconcile against referral attribution and reward ledger records.
+- Anonymous execution is denied; authenticated execution is granted.
+- Code generation is user-initiated rather than automatic on every login.
+- Copy/share actions expose only the member's own code; permanent deactivation requires explicit confirmation.
+- UI explains that signup attribution is not itself a reward and that rewards are BLC-only, funded from earned platform commission.
+
 ## Referral-code lifecycle tests
 
 - Authenticated members can retrieve or create only their own referral code.
