@@ -93,6 +93,9 @@ DECLARE
   v_other_wallet_id uuid;
   v_other_issuance_id uuid;
   v_issuance_id uuid;
+  v_member_wallet_id uuid;
+  v_second_credit_tx_id uuid;
+  v_second_topup_id uuid;
 BEGIN
   SELECT id INTO STRICT v_provider_id
   FROM private.payment_provider_accounts
@@ -167,6 +170,35 @@ BEGIN
     (v_other_user_tx_id, v_other_wallet_id, 'BLC', 1),
     (v_other_user_tx_id, v_issuance_id, 'BLC', -1);
 
+  -- Create a second credited top-up for user 2 so the wallet-owner FK can be
+  -- tested independently of the one-lot-per-top-up uniqueness constraint.
+  SELECT wallet_account_id INTO STRICT v_member_wallet_id
+  FROM private.blc_topup_funding_lots
+  WHERE topup_id = v_topup_id;
+
+  INSERT INTO private.wallet_transactions (
+    transaction_type, idempotency_key, actor_user_id
+  ) VALUES (
+    'purchase_credit', 'ci-wave-second-member-credit',
+    '00000000-0000-0000-0000-000000000002'
+  ) RETURNING id INTO v_second_credit_tx_id;
+
+  INSERT INTO private.wallet_ledger_entries(transaction_id, account_id, unit, amount)
+  VALUES
+    (v_second_credit_tx_id, v_member_wallet_id, 'BLC', 5),
+    (v_second_credit_tx_id, v_issuance_id, 'BLC', -5);
+
+  INSERT INTO private.blc_topups (
+    user_id, provider_account_id, amount_xof, amount_blc,
+    conversion_rate_numerator, conversion_rate_denominator,
+    status, client_reference, credit_wallet_transaction_id,
+    verified_at, credited_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000002',
+    v_provider_id, 5, 5, 1, 1, 'credited',
+    'ci-wave-second-topup-credit', v_second_credit_tx_id, now(), now()
+  ) RETURNING id INTO v_second_topup_id;
+
   BEGIN
     INSERT INTO private.blc_topups (
       user_id, provider_account_id, amount_xof, amount_blc,
@@ -217,8 +249,8 @@ BEGIN
       topup_id, user_id, wallet_account_id, credit_wallet_transaction_id,
       original_amount_blc, remaining_amount_blc, consumed_amount_blc
     ) VALUES (
-      v_topup_id, '00000000-0000-0000-0000-000000000002',
-      v_other_wallet_id, v_credit_tx_id, 25, 25, 0
+      v_second_topup_id, '00000000-0000-0000-0000-000000000002',
+      v_other_wallet_id, v_second_credit_tx_id, 5, 5, 0
     );
     RAISE EXCEPTION 'Cross-member top-up funding wallet was accepted';
   EXCEPTION WHEN foreign_key_violation THEN
