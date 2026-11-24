@@ -82,6 +82,7 @@ DECLARE
   sender_status text;
   recipient_email_confirmed boolean;
   recipient_status text;
+  sender_referrer_id uuid;
   result_transaction_id uuid;
 BEGIN
   IF caller_id IS NULL THEN
@@ -96,14 +97,23 @@ BEGIN
     RAISE EXCEPTION 'Invalid gift request' USING ERRCODE = '22023';
   END IF;
 
-  -- Lock sender and recipient eligibility records in deterministic UUID
-  -- order. This prevents account-status and age-declaration changes from
-  -- racing the gift while avoiding opposite-direction send deadlocks.
+  -- Resolve the sender's immutable referral attribution before locking.
+  -- Include the referrer in the same ordered lock set: the provenance trigger
+  -- locks this member's eligibility records after inventory-lot locking.
+  -- Acquiring all participants up front prevents referral-cycle deadlocks
+  -- (for example, A refers B while B refers A and both send concurrently).
+  SELECT a.referrer_user_id
+    INTO sender_referrer_id
+  FROM private.referral_attributions a
+  WHERE a.referred_user_id = caller_id;
+
+  -- Lock sender, recipient and referrer eligibility records in deterministic
+  -- UUID order. FOR SHARE blocks concurrent updates until this gift commits.
   PERFORM 1
   FROM auth.users u
   JOIN public.profiles p ON p.id = u.id
   JOIN public.user_private_settings ups ON ups.user_id = u.id
-  WHERE u.id IN (caller_id, p_recipient_user_id)
+  WHERE u.id IN (caller_id, p_recipient_user_id, sender_referrer_id)
   ORDER BY u.id
   FOR SHARE OF u, p, ups;
 
