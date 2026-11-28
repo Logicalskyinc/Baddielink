@@ -8,10 +8,12 @@ on:
   pull_request:
     branches:
       - main
+      - fix/blc-referral-code-integrity
     paths:
       - "supabase/proposals/**"
       - "supabase/migrations/**"
       - "supabase/migration-archive/**"
+      - "supabase/functions/**"
       - "docs/MIGRATION_HISTORY_RECOVERY.md"
       - ".github/workflows/blc-postgres-ci.yml"
   workflow_dispatch:
